@@ -1,4 +1,4 @@
-# 🤖 RoboCup Arena — Tournament Engine & Live Audience Projector System
+#  RoboCup Arena — Tournament Engine & Live Audience Projector System
 
 <p align="center">
   <img src="robocup/public/are-logo.jpg" alt="Association Robotique ENSI (ARE)" width="120" style="border-radius: 8px;" />
