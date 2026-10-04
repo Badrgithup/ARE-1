@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #0B0D12;
+  --color-bg-surface: #12151E;
+  --color-bg-card: #181B26;
+  --color-bg-card-hover: #1F2332;
+  --color-accent-gold: #D99B0B;
+  --color-accent-gold-dim: #9E7006;
+  --color-accent-cyan: #0EA5E9;
+  --color-text-primary: #F1F3F9;
+  --color-text-secondary: #9DA5B9;
+  --color-text-muted: #5D657B;
+  --color-border: #232838;
+  --color-border-strong: #333B50;
+  --color-danger: #EF4444;
+  --color-success: #10B981;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+:root {
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+body {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Technical Control Panels */
+.control-panel {
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.control-card {
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.control-card:hover {
+  border-color: var(--color-border-strong);
+}
+
+/* Competition Gold Highlight (restrained, for champions and active milestones) */
+.champion-border {
+  border: 1px solid rgba(217, 155, 11, 0.4);
+  background: linear-gradient(180deg, rgba(217, 155, 11, 0.08) 0%, rgba(18, 21, 30, 0.95) 100%);
+}
+
+/* Telemetry & Technical Numerals */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Technical Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0B0D12;
+}
+::-webkit-scrollbar-thumb {
+  background: #232838;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #333B50;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

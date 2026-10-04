@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+robocup/node_modules/
+.pnp
+.pnp.js
+
+# Next.js build output
+.next/
+robocup/.next/
+out/
+robocup/out/
+build/
+dist/
+
+# TypeScript build info
+*.tsbuildinfo
+robocup/tsconfig.tsbuildinfo
+
+# Browser automated test profiles & cache
+.chrome-*
+robocup/.chrome-*
+.edge-profile
+robocup/.edge-profile
+robocup/.agents/
+
+# Tournament runtime disk storage (temporary databases)
+robocup/data/tournaments/
+robocup/data/active-tournament.json
+robocup/data/tournaments-index.json
+data/tournaments/
+data/active-tournament.json
+data/tournaments-index.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env*.local
+.env
+
+# OS temporary files
+.DS_Store
+Thumbs.db

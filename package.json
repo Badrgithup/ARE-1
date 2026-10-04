@@ -1,0 +1,19 @@
+{
+  "name": "are-robocup-tournament",
+  "version": "1.0.0",
+  "description": "RoboCup Arena — Tournament Engine & Live Audience Projector System (Association Robotique ENSI)",
+  "private": true,
+  "scripts": {
+    "install:all": "npm --prefix robocup install",
+    "dev": "npm --prefix robocup run dev",
+    "build": "npm --prefix robocup run build",
+    "start": "npm --prefix robocup run start",
+    "test": "npm --prefix robocup test",
+    "verify:presentation": "node robocup/scripts/verify-phase-presentation.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Badrgithup/ARE-1.git"
+  },
+  "author": "Association Robotique ENSI (ARE)"
+}
