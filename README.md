@@ -283,13 +283,15 @@ npm install
 ### Step 3: Run the Application (One Command)
 
 #### Option A: Unified Arena Launcher (Production + Public Tunnel — Recommended)
-Starts the production server and Cloudflare Quick Tunnel with a single command, auto-detecting your LAN IP and public URL:
+Starts the production server and Cloudflare Quick Tunnel with a single command, auto-detecting your LAN IP, locating `cloudflared.exe` without requiring manual PATH changes, and capturing the public URL:
 
 ```bash
+npm run arena
+# or
 npm run start:arena
 ```
 
-*(From repo root: `npm run start:arena`, or from `robocup/`: `npm run start:arena`)*
+*(From repo root: `npm run arena`, or from `robocup/`: `npm run arena`)*
 
 #### Option B: Unified Development Launcher (Dev Server + Public Tunnel)
 Starts Next.js dev server with Turbopack and Cloudflare Quick Tunnel:
@@ -298,7 +300,14 @@ Starts Next.js dev server with Turbopack and Cloudflare Quick Tunnel:
 npm run dev:arena
 ```
 
-#### Option C: Standard Local-Only Mode
+#### Option C: Cloudflare Tunnel Diagnostics
+Verify your local Cloudflare installation, absolute executable discovery, version, and global PATH status:
+
+```bash
+npm run tunnel:check
+```
+
+#### Option D: Standard Local-Only Mode
 If you prefer running without any cloud tunnel:
 
 ```bash
@@ -310,7 +319,14 @@ npm run start
 
 ### ☁️ Cloudflare Tunnel CLI Setup (`cloudflared`)
 
-`start:arena` automatically uses `cloudflared` if installed. If it is not already installed on your system:
+RoboCup Arena uses **robust multi-location discovery** to locate `cloudflared.exe` across standard Windows installation paths (including WinGet packages, registry paths, and Program Files). **You do not need to manually modify your Windows PATH.**
+
+To test your installation at any time:
+```bash
+npm run tunnel:check
+```
+
+If it is not already installed on your system:
 
 #### Windows (via WinGet or Direct Download):
 ```powershell

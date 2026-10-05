@@ -8,6 +8,8 @@
     "dev": "npm --prefix robocup run dev",
     "build": "npm --prefix robocup run build",
     "start": "npm --prefix robocup run start",
+    "arena": "npm --prefix robocup run arena",
+    "tunnel:check": "npm --prefix robocup run tunnel:check",
     "start:arena": "npm --prefix robocup run start:arena",
     "dev:arena": "npm --prefix robocup run dev:arena",
     "test": "npm --prefix robocup test",

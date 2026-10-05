@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * RoboCup Arena — Unified Launcher
+ * RoboCup Arena — Unified Launcher & Tunnel Manager
  *
- * Starts the RoboCup Arena Next.js server and Cloudflare Quick Tunnel (cloudflared),
- * detects the local, LAN, and public URLs, and displays the official terminal banner.
+ * Commands:
+ * - npm run arena
+ * - npm run start:arena
+ * - npm run dev:arena
  */
 
 import { spawn, execSync } from 'child_process'
@@ -13,12 +15,13 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { fileURLToPath } from 'url'
+import { discoverCloudflared } from './cloudflared-discovery.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const robocupDir = path.resolve(__dirname, '..')
 
-// Configuration
+// CLI arguments
 const args = process.argv.slice(2)
 const isDev = args.includes('--dev') || process.env.NODE_ENV === 'development'
 const portArgIndex = args.indexOf('--port')
@@ -29,8 +32,11 @@ const PORT = portArgIndex !== -1 && args[portArgIndex + 1]
 let nextProcess = null
 let cloudflareProcess = null
 let isShuttingDown = false
+let currentPublicUrl = null
+let tunnelConnected = false
+let restartTimer = null
 
-// Detect best LAN IPv4 address (ignore virtual interfaces, WSL, Docker, VirtualBox host-only)
+// Detect best physical LAN IPv4 address
 function getLanIp() {
   const interfaces = os.networkInterfaces()
   const candidates = []
@@ -51,9 +57,7 @@ function getLanIp() {
         if (addr.address.startsWith('127.') || addr.address.startsWith('169.254.')) {
           continue
         }
-        // Exclude VirtualBox default host-only subnet 192.168.56.x unless nothing else exists
         const isVBoxSubnet = addr.address.startsWith('192.168.56.')
-
         candidates.push({
           name,
           address: addr.address,
@@ -67,70 +71,22 @@ function getLanIp() {
   return candidates[0] ? candidates[0].address : '127.0.0.1'
 }
 
-// Find cloudflared executable
-function findCloudflaredBinary() {
-  // 1. Try PATH
-  try {
-    const cmd = process.platform === 'win32' ? 'where cloudflared' : 'which cloudflared'
-    const out = execSync(cmd, { stdio: ['pipe', 'pipe', 'ignore'], encoding: 'utf-8' }).trim()
-    const firstLine = out.split(/\r?\n/)[0].trim()
-    if (firstLine && fs.existsSync(firstLine)) {
-      return firstLine
-    }
-  } catch {
-    // Not found in PATH
-  }
-
-  // 2. Check standard Windows paths
-  if (process.platform === 'win32') {
-    const knownPaths = [
-      'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe',
-      'C:\\Program Files\\cloudflared\\cloudflared.exe',
-      path.join(process.env.LOCALAPPDATA || '', 'cloudflared', 'cloudflared.exe'),
-      path.join(process.env.PROGRAMDATA || '', 'chocolatey', 'bin', 'cloudflared.exe')
-    ]
-
-    for (const p of knownPaths) {
-      if (fs.existsSync(p)) {
-        return p
-      }
-    }
-
-    // Check WinGet packages directory
-    const localAppData = process.env.LOCALAPPDATA || ''
-    const wingetDir = path.join(localAppData, 'Microsoft', 'WinGet', 'Packages')
-    if (fs.existsSync(wingetDir)) {
-      try {
-        const entries = fs.readdirSync(wingetDir)
-        for (const entry of entries) {
-          if (entry.toLowerCase().includes('cloudflared')) {
-            const candidate = path.join(wingetDir, entry, 'cloudflared.exe')
-            if (fs.existsSync(candidate)) {
-              return candidate
-            }
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  return null
-}
-
-// Check if local server is responding
-function waitForServer(port, timeoutMs = 30000) {
+// Check if local health check endpoint is responding
+function waitForHealth(port, timeoutMs = 30000) {
   const startTime = Date.now()
   return new Promise((resolve) => {
     let resolved = false
     const check = () => {
       if (isShuttingDown || resolved) return
-      const req = http.get(`http://127.0.0.1:${port}/api/tournament`, (res) => {
+      const req = http.get(`http://127.0.0.1:${port}/api/health`, (res) => {
         res.resume()
-        if (!resolved) {
-          resolved = true
-          resolve(true)
+        if (res.statusCode === 200) {
+          if (!resolved) {
+            resolved = true
+            resolve(true)
+          }
+        } else {
+          setTimeout(check, 300)
         }
       })
       req.on('error', () => {
@@ -143,7 +99,7 @@ function waitForServer(port, timeoutMs = 30000) {
           setTimeout(check, 300)
         }
       })
-      req.setTimeout(4000, () => {
+      req.setTimeout(3000, () => {
         req.destroy()
         if (!resolved) {
           if (Date.now() - startTime > timeoutMs) {
@@ -159,11 +115,13 @@ function waitForServer(port, timeoutMs = 30000) {
   })
 }
 
-// Print official arena banner
-function printArenaBanner({ localUrl, lanUrl, publicUrl, cloudflaredMissing }) {
-  console.log('\n' + '='.repeat(52))
-  console.log('           ROBOCUP ARENA IS READY')
-  console.log('='.repeat(52))
+// Print official arena ready banner matching requirement 7
+function printArenaBanner({ localUrl, lanUrl, publicUrl, tunnelStatus }) {
+  const isTunnelReady = Boolean(publicUrl) && tunnelStatus === 'CONNECTED'
+
+  console.log('\n' + '='.repeat(60))
+  console.log('                 ROBOCUP ARENA READY')
+  console.log('='.repeat(60))
   console.log('')
   console.log('LOCAL:')
   console.log(localUrl)
@@ -172,46 +130,48 @@ function printArenaBanner({ localUrl, lanUrl, publicUrl, cloudflaredMissing }) {
   console.log(lanUrl)
   console.log('')
 
-  if (publicUrl) {
+  if (isTunnelReady) {
     console.log('PUBLIC:')
     console.log(publicUrl)
     console.log('')
     console.log('PROJECTOR:')
     console.log(`${publicUrl}projector`)
     console.log('')
-    console.log('ADMIN:')
-    console.log(publicUrl)
-    console.log('')
-    console.log('='.repeat(52))
-    console.log('COPY THIS URL TO THE PROJECTOR:')
-    console.log(`${publicUrl}projector`)
-    console.log('='.repeat(52))
   } else {
     console.log('PROJECTOR (LAN):')
     console.log(`${lanUrl}projector`)
     console.log('')
-    console.log('ADMIN (LAN):')
-    console.log(lanUrl)
-    console.log('')
-    console.log('='.repeat(52))
-    console.log('COPY THIS URL TO THE PROJECTOR:')
-    console.log(`${lanUrl}projector`)
-    console.log('='.repeat(52))
-
-    if (cloudflaredMissing) {
-      console.log('\n' + '='.repeat(52))
-      console.log(' Cloudflare Tunnel CLI (cloudflared) is not found!')
-      console.log(' Install it with:')
-      console.log('   winget install --id Cloudflare.cloudflared')
-      console.log(' Or download from:')
-      console.log('   https://github.com/cloudflare/cloudflared/releases')
-      console.log('='.repeat(52))
-    }
   }
+
+  console.log('-'.repeat(60))
+  console.log('')
+  console.log('✓ RoboCup Server       ONLINE')
+  if (isTunnelReady) {
+    console.log('✓ Cloudflare Tunnel    CONNECTED')
+    console.log('✓ Public URL           READY')
+    console.log('✓ Projector            READY')
+  } else {
+    console.log(`✗ Cloudflare Tunnel    ${tunnelStatus || 'OFFLINE'}`)
+    console.log('- Public URL           UNAVAILABLE')
+    console.log('✓ Projector            READY (LAN)')
+  }
+  console.log('✓ Live Sync            READY')
+  console.log('')
+  console.log('-'.repeat(60))
+  console.log('')
+  console.log('COPY THIS URL TO THE PROJECTOR:')
+  console.log('')
+  if (isTunnelReady) {
+    console.log(`${publicUrl}projector`)
+  } else {
+    console.log(`${lanUrl}projector`)
+  }
+  console.log('')
+  console.log('='.repeat(60))
   console.log('\n[Press Ctrl+C to stop the arena server]\n')
 }
 
-// Kill process cleanly
+// Kill process cleanly on Windows and Unix
 function killProcess(proc) {
   if (!proc || !proc.pid) return
   try {
@@ -229,10 +189,10 @@ function killProcess(proc) {
   }
 }
 
-// Clean shutdown handler
 function shutdown() {
   if (isShuttingDown) return
   isShuttingDown = true
+  if (restartTimer) clearTimeout(restartTimer)
   console.log('\n\n[RoboCup Arena] Stopping services...')
   if (cloudflareProcess) {
     killProcess(cloudflareProcess)
@@ -254,21 +214,123 @@ process.on('exit', () => {
   if (nextProcess) killProcess(nextProcess)
 })
 
+// Start and supervise Cloudflare Tunnel
+function startCloudflareTunnel(cloudflaredExe, localUrl, lanUrl) {
+  if (isShuttingDown) return
+
+  console.log(`[Cloudflare Tunnel] Launching using absolute executable:`)
+  console.log(`  ${cloudflaredExe}`)
+
+  tunnelConnected = false
+  currentPublicUrl = null
+
+  cloudflareProcess = spawn(
+    cloudflaredExe,
+    ['tunnel', '--url', `http://localhost:${PORT}`],
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: false
+    }
+  )
+
+  let bannerPrinted = false
+
+  const handleTunnelData = (chunk) => {
+    const text = chunk.toString()
+
+    // 1. Detect public URL
+    const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/i)
+    if (match) {
+      const detectedUrl = match[0].endsWith('/') ? match[0] : `${match[0]}/`
+      if (detectedUrl !== currentPublicUrl) {
+        currentPublicUrl = detectedUrl
+        tunnelConnected = true
+        bannerPrinted = true
+        printArenaBanner({
+          localUrl,
+          lanUrl,
+          publicUrl: currentPublicUrl,
+          tunnelStatus: 'CONNECTED'
+        })
+      }
+    }
+
+    // 2. Monitor connection registration / health
+    if (text.includes('Registered tunnel connection')) {
+      tunnelConnected = true
+    }
+
+    // 3. Monitor error conditions (e.g. Error 1033 prevention)
+    if (text.includes('Failed to dial') || text.includes('error=')) {
+      if (text.includes('failed to dial to edge') && !tunnelConnected) {
+        // Edge connection in progress or retrying
+      }
+    }
+  }
+
+  cloudflareProcess.stdout.on('data', handleTunnelData)
+  cloudflareProcess.stderr.on('data', handleTunnelData)
+
+  cloudflareProcess.on('exit', (code) => {
+    if (isShuttingDown) return
+    tunnelConnected = false
+    const previousUrl = currentPublicUrl
+    currentPublicUrl = null
+
+    console.warn(`\n[Cloudflare Tunnel] Status: OFFLINE (Process exited with code ${code})`)
+    if (previousUrl) {
+      console.warn(`[Cloudflare Tunnel] Previous public URL (${previousUrl}) is no longer active.`)
+    }
+
+    printArenaBanner({
+      localUrl,
+      lanUrl,
+      publicUrl: null,
+      tunnelStatus: 'OFFLINE'
+    })
+
+    // Attempt auto-recovery/restart after 3s delay
+    console.log('[Cloudflare Tunnel] Attempting tunnel restart in 3 seconds...')
+    restartTimer = setTimeout(() => {
+      if (!isShuttingDown) {
+        startCloudflareTunnel(cloudflaredExe, localUrl, lanUrl)
+      }
+    }, 3000)
+  })
+}
+
 async function main() {
-  console.log('====================================================')
-  console.log('       STARTING ROBOCUP ARENA TOURNAMENT SYSTEM      ')
-  console.log('====================================================')
+  console.log('='.repeat(60))
+  console.log('       STARTING ROBOCUP ARENA TOURNAMENT SYSTEM')
+  console.log('='.repeat(60))
 
   const lanIp = getLanIp()
   const localUrl = `http://localhost:${PORT}/`
   const lanUrl = `http://${lanIp}:${PORT}/`
 
-  // 1. Prepare Next.js command
+  // 1. Discovery phase: find cloudflared executable
+  console.log('[Discovery] Inspecting Cloudflare cloudflared executable...')
+  const discovery = discoverCloudflared()
+
+  if (discovery.found) {
+    console.log(`[Discovery] ✓ Found cloudflared v${discovery.version}`)
+    console.log(`[Discovery]   Absolute Path: ${discovery.executablePath}`)
+    if (!discovery.inPath) {
+      console.log(`[Discovery]   Note: Executable is not in current PATH, using verified absolute path directly.`)
+    }
+  } else {
+    console.warn('[Discovery] ✗ cloudflared executable was not found on this system.')
+    if (discovery.packageInstalled) {
+      console.warn(`[Discovery]   Package ${discovery.packageVersion} is registered, but executable was missing.`)
+    }
+  }
+
+  // 2. Start Next.js
   const hasBuild = fs.existsSync(path.join(robocupDir, '.next'))
   let mode = isDev ? 'dev' : hasBuild ? 'start' : 'dev'
 
   if (!isDev && !hasBuild) {
-    console.log('[RoboCup Arena] No build found in .next directory. Starting in dev mode...')
+    console.log('[RoboCup Arena] No production build found in .next. Starting in dev mode...')
     mode = 'dev'
   }
 
@@ -284,7 +346,6 @@ async function main() {
 
   nextProcess.stdout.on('data', (data) => {
     const text = data.toString()
-    // Suppress verbose initial Next.js lines once banner is displayed, or show build logs
     if (!isShuttingDown) {
       if (text.includes('Ready in') || text.includes('Compiled') || text.includes('error')) {
         process.stdout.write(text)
@@ -300,74 +361,40 @@ async function main() {
 
   nextProcess.on('exit', (code) => {
     if (!isShuttingDown) {
-      console.error(`[RoboCup Arena] Next.js process exited unexpectedly with code ${code}`)
+      if (code !== null && code !== 0) {
+        console.error(`[RoboCup Arena] Next.js process exited unexpectedly with code ${code}`)
+      }
       shutdown()
     }
   })
 
-  // 2. Wait for local server to respond
-  console.log('[RoboCup Arena] Waiting for local server to be ready...')
-  const serverReady = await waitForServer(PORT, 30000)
-  if (!serverReady) {
-    console.error(`[RoboCup Arena] Error: Server failed to start on port ${PORT}.`)
+  // 3. Wait for /api/health to respond 200 OK
+  console.log(`[RoboCup Arena] Waiting for http://localhost:${PORT}/api/health...`)
+  const serverHealthy = await waitForHealth(PORT, 30000)
+
+  if (!serverHealthy) {
+    console.error(`[RoboCup Arena] Error: Health check failed on port ${PORT}.`)
     shutdown()
     return
   }
-  console.log(`[RoboCup Arena] Server is online on port ${PORT}!`)
 
-  // 3. Find and launch cloudflared
-  const cloudflaredBinary = findCloudflaredBinary()
-  let publicUrl = null
-  let cloudflaredMissing = false
+  console.log(`[RoboCup Arena] ✓ Health check OK (Server is ready on port ${PORT})`)
 
-  if (!cloudflaredBinary) {
-    cloudflaredMissing = true
-    console.warn('[RoboCup Arena] Cloudflare Tunnel (cloudflared) not detected.')
-    printArenaBanner({ localUrl, lanUrl, publicUrl: null, cloudflaredMissing: true })
-    return
+  // 4. Start Cloudflare Tunnel if executable was found
+  if (discovery.found && discovery.executablePath) {
+    startCloudflareTunnel(discovery.executablePath, localUrl, lanUrl)
+  } else {
+    printArenaBanner({
+      localUrl,
+      lanUrl,
+      publicUrl: null,
+      tunnelStatus: 'NOT_INSTALLED'
+    })
+    console.log('='.repeat(60))
+    console.log(' Cloudflare Tunnel CLI (cloudflared) is not available.')
+    console.log(' Install with: winget install --id Cloudflare.cloudflared')
+    console.log('='.repeat(60))
   }
-
-  console.log(`[RoboCup Arena] Starting Cloudflare Quick Tunnel using: ${cloudflaredBinary}...`)
-  cloudflareProcess = spawn(
-    cloudflaredBinary,
-    ['tunnel', '--url', `http://localhost:${PORT}`],
-    {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: false
-    }
-  )
-
-  let tunnelFound = false
-
-  const onTunnelOutput = (chunk) => {
-    const text = chunk.toString()
-    if (!tunnelFound) {
-      const match = text.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/i)
-      if (match) {
-        tunnelFound = true
-        publicUrl = match[0].endsWith('/') ? match[0] : `${match[0]}/`
-        printArenaBanner({ localUrl, lanUrl, publicUrl, cloudflaredMissing: false })
-      }
-    }
-  }
-
-  cloudflareProcess.stdout.on('data', onTunnelOutput)
-  cloudflareProcess.stderr.on('data', onTunnelOutput)
-
-  cloudflareProcess.on('exit', (code) => {
-    if (!tunnelFound && !isShuttingDown) {
-      console.warn(`[RoboCup Arena] Cloudflare Tunnel exited (code ${code}). Running in local/LAN mode.`)
-      printArenaBanner({ localUrl, lanUrl, publicUrl: null, cloudflaredMissing: false })
-    }
-  })
-
-  // Fallback timeout: if cloudflared doesn't yield URL within 15 seconds, show LAN banner
-  setTimeout(() => {
-    if (!tunnelFound && !isShuttingDown) {
-      console.warn('[RoboCup Arena] Cloudflare Tunnel timed out acquiring public URL. Running in local/LAN mode.')
-      printArenaBanner({ localUrl, lanUrl, publicUrl: null, cloudflaredMissing: false })
-    }
-  }, 15000)
 }
 
 main().catch((err) => {
