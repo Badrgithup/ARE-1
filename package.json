@@ -8,6 +8,8 @@
     "dev": "npm --prefix robocup run dev",
     "build": "npm --prefix robocup run build",
     "start": "npm --prefix robocup run start",
+    "start:arena": "npm --prefix robocup run start:arena",
+    "dev:arena": "npm --prefix robocup run dev:arena",
     "test": "npm --prefix robocup test",
     "verify:presentation": "node robocup/scripts/verify-phase-presentation.mjs"
   },

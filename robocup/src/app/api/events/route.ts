@@ -4,7 +4,7 @@ import {
   getActiveTournamentId,
   ArenaEvent,
 } from '@/lib/tournament-events'
-import { loadTournament } from '@/lib/tournament-repository'
+import { loadTournament, listTournaments } from '@/lib/tournament-repository'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -39,7 +39,13 @@ export async function GET(request: NextRequest) {
 
       // 1. Send initial state on connection
       try {
-        const targetId = filterId || getActiveTournamentId()
+        let targetId = filterId || getActiveTournamentId()
+        if (!targetId) {
+          const list = await listTournaments()
+          if (list.length > 0) {
+            targetId = list[0].id
+          }
+        }
         if (targetId) {
           try {
             const current = await loadTournament(targetId)
@@ -50,7 +56,7 @@ export async function GET(request: NextRequest) {
             // Not found or corrupted, continue
           }
         }
-        send({ type: 'active', id: getActiveTournamentId() })
+        send({ type: 'active', id: targetId || getActiveTournamentId() })
       } catch (err) {
         console.error('Error sending initial SSE tournament state:', err)
       }

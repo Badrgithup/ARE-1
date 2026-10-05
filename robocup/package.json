@@ -6,6 +6,8 @@
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3000",
+    "start:arena": "node scripts/start-arena.mjs",
+    "dev:arena": "node scripts/start-arena.mjs --dev",
     "lint": "next lint",
     "test": "tsx --test tests/**/*.test.ts"
   },

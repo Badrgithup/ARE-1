@@ -27,11 +27,13 @@
   - [Arbitrary Knockout Brackets (e.g. 22 Robots)](#1-arbitrary-knockout-brackets-eg-22-robots)
   - [Generalized Group-Stage Engine (5 to 9 Robots)](#2-generalized-group-stage-engine-5-to-9-robots)
 - [Projector View — Phase-Based Live Presentation](#-projector-view--phase-based-live-presentation)
+- [Public Remote Access & One-Command Start](#-public-remote-access--one-command-start)
 - [Multi-PC Live Event Setup (LAN / Wi-Fi)](#-multi-pc-live-event-setup-lan--wi-fi)
 - [Prerequisites & Installation](#-prerequisites--installation)
   - [Step 1: Clone the Repository](#step-1-clone-the-repository)
   - [Step 2: Install Dependencies](#step-2-install-dependencies)
-  - [Step 3: Run the Application](#step-3-run-the-application)
+  - [Step 3: Run the Application (One Command)](#step-3-run-the-application-one-command)
+  - [Cloudflare Tunnel CLI Setup (cloudflared)](#cloudflare-tunnel-cli-setup-cloudflared)
 - [Testing & Quality Assurance](#-testing--quality-assurance)
 - [Keyboard Shortcuts (Projector View)](#-keyboard-shortcuts-projector-view)
 - [Project Directory Structure](#-project-directory-structure)
@@ -134,6 +136,78 @@ The Projector View automatically switches screens to showcase only the authorita
 
 ---
 
+## 🌍 Public Remote Access & One-Command Start
+
+RoboCup Arena supports **Public Remote Access** in addition to Local and LAN access. With a single command, you can run the arena server and automatically expose the live projector to anyone on the internet (e.g. spectators on smartphones, remote display screens, or secondary projectors on separate networks or cellular hotspots).
+
+### The One-Command Experience
+
+From the root directory or `robocup/` folder:
+
+```bash
+npm run start:arena
+```
+
+*(Or for live development mode with hot-reloading: `npm run dev:arena`)*
+
+### What the Command Does Automatically:
+1. **Starts the Arena Server**: Binds Next.js to `0.0.0.0:3000`.
+2. **Detects Your Machine's LAN IP**: Resolves the true physical IPv4 address (e.g. `192.168.x.x`), strictly ignoring virtual adapters and never showing unusable `0.0.0.0` browser links.
+3. **Launches Cloudflare Quick Tunnel**: Starts a secure, account-less tunnel (`cloudflared`) pointing directly to `http://localhost:3000`.
+4. **Detects the Public URL**: Parses the generated `https://xxxx-xxxx.trycloudflare.com` domain in real time.
+5. **Displays the Unified Terminal Banner**:
+
+```text
+====================================================
+           ROBOCUP ARENA IS READY
+====================================================
+
+LOCAL:
+http://localhost:3000/
+
+LAN:
+http://192.168.3.9:3000/
+
+PUBLIC:
+https://dispatched-collectables-varies-probe.trycloudflare.com/
+
+PROJECTOR:
+https://dispatched-collectables-varies-probe.trycloudflare.com/projector
+
+ADMIN:
+https://dispatched-collectables-varies-probe.trycloudflare.com/
+
+====================================================
+COPY THIS URL TO THE PROJECTOR:
+https://dispatched-collectables-varies-probe.trycloudflare.com/projector
+====================================================
+
+[Press Ctrl+C to stop the arena server]
+```
+
+### Remote Projector Architecture:
+
+```text
+       Admin Desk (Host PC)
+               │
+               ▼
+      [RoboCup Server: 3000]
+         │            │
+         │            ▼
+         │      [cloudflared]
+         │            │ (Argo Edge)
+         ▼            ▼
+    Local/LAN      Public Internet (trycloudflare.com)
+    Audience       Remote Projectors, Phones, Remote Screens
+```
+
+- **Zero Cloudflare Configuration**: No Cloudflare account, DNS setup, API keys, or certificates required.
+- **Remote Synchronization**: The remote projector does not rely on device-local `localStorage`. It listens to server-authoritative **Server-Sent Events (SSE)** via `/api/events` with an automatic 2-second **HTTP Polling fallback** if network connection drops.
+- **Graceful Fault Tolerance**: If `cloudflared` is not installed or the local network blocks tunnel ports, the server **does not crash**; it continues running locally and over LAN with clear instructions on how to install `cloudflared`.
+- **Clean One-Key Shutdown**: Pressing `Ctrl+C` terminates both the Next.js server and Cloudflare tunnel cleanly, leaving no orphaned background processes.
+
+---
+
 ## 🌐 Multi-PC Live Event Setup (LAN / Wi-Fi)
 
 Run the Admin desk and the Projector display on separate machines on the venue network:
@@ -206,27 +280,56 @@ npm install
 
 ---
 
-### Step 3: Run the Application
+### Step 3: Run the Application (One Command)
 
-#### Option A: Production Mode (Recommended for Competitions)
-Compiles optimized production assets and starts the server on `0.0.0.0:3000`:
+#### Option A: Unified Arena Launcher (Production + Public Tunnel — Recommended)
+Starts the production server and Cloudflare Quick Tunnel with a single command, auto-detecting your LAN IP and public URL:
+
+```bash
+npm run start:arena
+```
+
+*(From repo root: `npm run start:arena`, or from `robocup/`: `npm run start:arena`)*
+
+#### Option B: Unified Development Launcher (Dev Server + Public Tunnel)
+Starts Next.js dev server with Turbopack and Cloudflare Quick Tunnel:
+
+```bash
+npm run dev:arena
+```
+
+#### Option C: Standard Local-Only Mode
+If you prefer running without any cloud tunnel:
 
 ```bash
 npm run build
 npm run start
 ```
 
-The application is now accessible at:
-- **Admin Control Desk**: [http://localhost:3000](http://localhost:3000)
-- **Live Projector Display**: [http://localhost:3000/projector](http://localhost:3000/projector)
-- **Tournament Archives**: [http://localhost:3000/history](http://localhost:3000/history)
+---
 
-#### Option B: Development Mode (For Code Changes)
-Starts the Next.js development server with Turbopack Hot Module Replacement:
+### ☁️ Cloudflare Tunnel CLI Setup (`cloudflared`)
 
-```bash
-npm run dev
+`start:arena` automatically uses `cloudflared` if installed. If it is not already installed on your system:
+
+#### Windows (via WinGet or Direct Download):
+```powershell
+winget install --id Cloudflare.cloudflared
 ```
+Or download the Windows 64-bit standalone executable from the [Cloudflare Releases page](https://github.com/cloudflare/cloudflared/releases) and place `cloudflared.exe` in your `PATH` or `C:\Program Files (x86)\cloudflared\`.
+
+#### macOS (via Homebrew):
+```bash
+brew install cloudflared
+```
+
+#### Linux (Debian / Ubuntu):
+```bash
+curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i cloudflared.deb
+```
+
+> **Note**: If `cloudflared` is not installed, `npm run start:arena` will **never crash**. It will display friendly installation guidance and continue running smoothly in Local and LAN mode.
 
 ---
 

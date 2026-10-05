@@ -245,7 +245,24 @@ export function subscribeTournamentSync(
 
     // If SSE is connected, keep poll interval relaxed as a safety net
     const currentId = targetTournamentId || getActiveTournamentId()
-    if (!currentId) return
+    if (!currentId) {
+      try {
+        const listRes = await fetch('/api/tournament', { cache: 'no-store' })
+        if (listRes.ok) {
+          const listJson = await listRes.json()
+          if (listJson.success && Array.isArray(listJson.data) && listJson.data.length > 0) {
+            const latest = listJson.data[0]
+            if (onActiveChange) {
+              onActiveChange(latest.id, latest)
+            }
+            handleIncomingTournament(latest)
+          }
+        }
+      } catch {
+        // Network hiccup
+      }
+      return
+    }
 
     try {
       const res = await fetch(`/api/tournament/${currentId}`, { cache: 'no-store' })
