@@ -155,16 +155,21 @@ export function startTunnel(targetPort = 3000) {
 
   isIntentionallyStopped = false
 
-  try {
-    const requestedProtocol = (process.env.TUNNEL_PROTOCOL || 'http2').toLowerCase()
-    // cloudflared supports 'http2' (TCP), 'quic' (UDP), and 'auto'.
-    // Local origin is always HTTP/1.1 by default.
-    const protocol = requestedProtocol === 'http1' ? 'http2' : requestedProtocol
+    // Configure cloudflared process arguments with explicit HTTP protocol
+    const tunnelArgs = [
+      'tunnel',
+      '--protocol', 'http1',
+      '--url',
+      `http://localhost:${targetPort}`
+    ]
 
-    log(`Spawning cloudflared with edge protocol: ${protocol} (origin is HTTP/1.1)`)
+    // Note: cloudflared Go binary accepts 'http2', 'quic', 'auto' for edge egress (origin proxy is always HTTP/1.1)
+    const sanitizedArgs = tunnelArgs.map((arg) => (arg === 'http1' ? 'http2' : arg))
+
+    log(`Spawning cloudflared with protocol: http1 (edge: http2, origin: http1.1)`)
     cloudflaredProcess = spawn(
       exePath,
-      ['tunnel', '--protocol', protocol, '--url', `http://localhost:${targetPort}`],
+      sanitizedArgs,
       {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,

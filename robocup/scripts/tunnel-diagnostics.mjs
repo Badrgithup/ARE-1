@@ -4,7 +4,7 @@
  * RoboCup Arena — Cloudflare Tunnel Comprehensive Diagnostics
  */
 
-import { exec } from 'child_process'
+import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import fs from 'fs'
 import path from 'path'
@@ -17,6 +17,16 @@ const execAsync = promisify(exec)
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const robocupDir = path.resolve(__dirname, '..')
+
+// Cloudflare Tunnel process configuration
+export function spawnTunnel(cloudflaredBin = 'cloudflared', port = 3000) {
+  return spawn(cloudflaredBin, [
+    'tunnel',
+    '--protocol', 'http1',
+    '--url',
+    `http://localhost:${port}`
+  ])
+}
 
 async function checkUrl(url, timeoutMs = 3000) {
   return new Promise((resolve) => {

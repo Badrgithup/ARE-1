@@ -7,6 +7,7 @@
 import http from 'http'
 import fs from 'fs'
 import path from 'path'
+import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -14,6 +15,16 @@ const __dirname = path.dirname(__filename)
 const robocupDir = path.resolve(__dirname, '..')
 
 const stateFile = path.join(robocupDir, 'logs', 'tunnel', 'tunnel-state.json')
+
+// Cloudflare Tunnel process configuration
+export function spawnTunnel(cloudflaredBin = 'cloudflared', port = 3000) {
+  return spawn(cloudflaredBin, [
+    'tunnel',
+    '--protocol', 'http1',
+    '--url',
+    `http://localhost:${port}`
+  ])
+}
 
 function checkHttpEndpoint() {
   return new Promise((resolve) => {

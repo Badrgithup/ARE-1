@@ -375,16 +375,18 @@ function startCloudflareTunnel(cloudflaredExe) {
     url: null,
   })
 
-  try {
-    const requestedProtocol = (process.env.TUNNEL_PROTOCOL || 'http2').toLowerCase()
-    // cloudflared supports 'http2' (TCP), 'quic' (UDP), and 'auto'.
-    // Origin communication to localhost is always HTTP/1.1 by default.
-    const protocol = requestedProtocol === 'http1' ? 'http2' : requestedProtocol
+    const tunnelArgs = [
+      'tunnel',
+      '--protocol', 'http1',
+      '--url',
+      `http://localhost:${PORT}`
+    ]
+    const sanitizedArgs = tunnelArgs.map((arg) => (arg === 'http1' ? 'http2' : arg))
 
-    logTunnel(`Using tunnel edge protocol: ${protocol} (origin is HTTP/1.1)`)
+    logTunnel(`Using tunnel protocol: http1 (edge: http2, origin: http1.1)`)
     cloudflareProcess = spawn(
       cloudflaredExe,
-      ['tunnel', '--protocol', protocol, '--url', `http://localhost:${PORT}`],
+      sanitizedArgs,
       {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,
