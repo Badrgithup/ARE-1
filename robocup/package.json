@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 0.0.0.0 -p 3000",
+    "dev": "node server.mjs --dev",
     "build": "next build",
-    "start": "next start -H 0.0.0.0 -p 3000",
+    "start": "node server.mjs",
+    "next:dev": "next dev -H 0.0.0.0 -p 3000",
+    "next:start": "next start -H 0.0.0.0 -p 3000",
     "arena": "node scripts/start-arena.mjs",
     "tunnel:check": "node scripts/tunnel-check.mjs",
     "tunnel:start": "node scripts/tunnel-supervisor.mjs",
@@ -27,7 +29,9 @@
     "next": "^15.3.0",
     "papaparse": "^5.5.2",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",

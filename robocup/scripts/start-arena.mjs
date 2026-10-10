@@ -212,6 +212,9 @@ function printArenaBanner() {
     console.log('PROJECTOR:')
     console.log(`${arenaState.publicUrl}projector`)
     console.log('')
+    console.log('ARENA CAMERA (OPEN ON PHONE):')
+    console.log(`${arenaState.publicUrl}camera`)
+    console.log('')
   } else {
     console.log('PUBLIC:')
     console.log(`❌ ${arenaState.tunnelStatus} - Waiting for tunnel reconnection...`)
@@ -219,11 +222,15 @@ function printArenaBanner() {
     console.log('PROJECTOR (LAN):')
     console.log(`${arenaState.lanUrl}projector`)
     console.log('')
+    console.log('ARENA CAMERA (LAN - PHONE):')
+    console.log(`${arenaState.lanUrl}camera`)
+    console.log('')
   }
 
   console.log('-'.repeat(60))
   console.log('')
   console.log(`✓ RoboCup Server       ${arenaState.serverOnline ? 'ONLINE' : 'OFFLINE'}`)
+  console.log('✓ Socket.io Streamer   READY (:3000/camera)')
   if (isTunnelReady) {
     console.log('✓ Cloudflare Tunnel    CONNECTED')
     console.log('✓ Public URL           READY')
@@ -587,10 +594,16 @@ async function main() {
     mode = 'dev'
   }
 
-  console.log(`[RoboCup Arena] Launching Next.js server (${mode} mode on 0.0.0.0:${PORT})...`)
+  const serverScript = path.join(robocupDir, 'server.mjs')
+  const useUnifiedServer = fs.existsSync(serverScript)
 
-  const nextBin = path.join(robocupDir, 'node_modules', 'next', 'dist', 'bin', 'next')
-  nextProcess = spawn(process.execPath, [nextBin, mode, '-H', '0.0.0.0', '-p', String(PORT)], {
+  const serverArgs = useUnifiedServer
+    ? [serverScript, mode === 'dev' ? '--dev' : '']
+    : [path.join(robocupDir, 'node_modules', 'next', 'dist', 'bin', 'next'), mode, '-H', '0.0.0.0', '-p', String(PORT)]
+
+  console.log(`[RoboCup Arena] Launching ${useUnifiedServer ? 'Unified Server with Socket.io' : 'Next.js server'} (${mode} mode on 0.0.0.0:${PORT})...`)
+
+  nextProcess = spawn(process.execPath, serverArgs.filter(Boolean), {
     cwd: robocupDir,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: { ...process.env, PORT: String(PORT) },

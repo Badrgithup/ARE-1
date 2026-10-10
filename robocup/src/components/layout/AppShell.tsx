@@ -9,8 +9,9 @@ import { PlusIcon } from '@/components/icons'
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isProjector = pathname ? pathname.includes('/projector') : false
+  const isCamera = pathname ? pathname.includes('/camera') : false
 
-  if (isProjector) {
+  if (isProjector || isCamera) {
     return (
       <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-[#0B0D12] select-none text-text-primary">
         {children}
@@ -55,6 +56,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="px-3 py-1.5 text-xs font-medium rounded text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
               >
                 Archives & History
+              </Link>
+              <Link
+                href="/camera"
+                target="_blank"
+                className="px-3 py-1.5 text-xs font-medium rounded text-accent-gold hover:text-accent-gold/80 hover:bg-bg-card transition-colors flex items-center gap-1.5"
+              >
+                Arena Camera
               </Link>
             </nav>
           </div>

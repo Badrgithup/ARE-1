@@ -15,11 +15,13 @@ import {
   Flame,
   Clock,
   Sparkles,
+  Camera,
 } from 'lucide-react'
 import clsx from 'clsx'
 import type { Tournament, Match, Robot, PerformanceRanking } from '@/lib/types'
 import { TournamentBracketTree } from './TournamentBracketTree'
 import { calculateMultiGroupStandings, getGroupAdvancers } from '@/lib/group-stage-engine'
+import { ProjectorCameraWidget } from './ProjectorCameraWidget'
 
 export interface ProjectorDisplayProps {
   tournament: Tournament | null
@@ -93,6 +95,8 @@ export function ProjectorDisplay({
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [displayMode, setDisplayMode] = useState<DisplayMode>('phase')
   const [selectedPhaseOverride, setSelectedPhaseOverride] = useState<ProjectorPhase | null>(null)
+  const [showCamera, setShowCamera] = useState(false)
+  const [cameraLayout, setCameraLayout] = useState<'split' | 'pip'>('split')
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Track fullscreen state
@@ -159,6 +163,8 @@ export function ProjectorDisplay({
 
       if (e.key === 'f' || e.key === 'F') {
         toggleFullscreen()
+      } else if (e.key === 'v' || e.key === 'V') {
+        setShowCamera((prev) => !prev)
       } else if (e.key === 't' || e.key === 'T') {
         setDisplayMode((prev) => (prev === 'tree' ? 'phase' : 'tree'))
       } else if (e.key === 'd' || e.key === 'D') {
@@ -470,6 +476,21 @@ export function ProjectorDisplay({
             )}
           </div>
 
+          {/* Arena Camera Toggle */}
+          <button
+            onClick={() => setShowCamera((prev) => !prev)}
+            className={clsx(
+              'px-2.5 py-1 rounded text-[11px] font-semibold transition-colors flex items-center gap-1.5 cursor-pointer border',
+              showCamera
+                ? 'bg-accent-gold text-[#0B0D12] font-bold border-accent-gold shadow-sm'
+                : 'bg-bg-surface hover:bg-bg-card border-border text-text-secondary hover:text-text-primary'
+            )}
+            title="Toggle Live Arena Camera Feed [V]"
+          >
+            <Camera className="w-3.5 h-3.5 text-current" />
+            <span className="hidden md:inline">Arena Cam</span>
+          </button>
+
           {/* Fullscreen Button */}
           <button
             onClick={toggleFullscreen}
@@ -489,80 +510,110 @@ export function ProjectorDisplay({
           MAIN AUDIENCE PROJECTION STAGE (100% CONTAINED VIEWPORT)
           No infinite vertical canvas. Fits 1920x1080 and 1366x768 screens.
          ───────────────────────────────────────────────────────────── */}
-      <main className="flex-1 w-full h-[calc(100dvh-56px)] sm:h-[calc(100dvh-64px)] overflow-hidden flex flex-col justify-center items-center p-3 sm:p-6 select-none relative">
-        <AnimatePresence mode="wait">
-          {displayMode === 'tree' ? (
-            <motion.div
-              key="mode-tree"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.2 }}
-              className="w-full h-full flex flex-col justify-center overflow-auto rounded border border-border bg-[#0B0D12]"
-            >
-              <TournamentBracketTree tournament={tournament} isProjector={true} />
-            </motion.div>
-          ) : displayMode === 'duel' && currentMatch ? (
-            <motion.div
-              key="mode-duel"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.25 }}
-              className="w-full h-full flex items-center justify-center"
-            >
-              <LiveDuelSpotlight match={currentMatch} stageLabel={phaseTitle} />
-            </motion.div>
-          ) : (
-            // Phase-based views
-            <motion.div
-              key={`phase-${activePhase}`}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.22 }}
-              className="w-full h-full flex items-center justify-center"
-            >
-              {activePhase === 'champion' && champion ? (
-                <ChampionPhasePresentation
-                  champion={champion}
-                  tournamentName={tournament.name}
-                  runnerUp={runnerUp}
-                  performanceResults={tournament.performanceResults}
-                />
-              ) : activePhase === 'individual_performance' ? (
-                <IndividualPerformancePhasePresentation
-                  tournament={tournament}
-                />
-              ) : activePhase === 'final' ? (
-                <FinalPhasePresentation
-                  tournament={tournament}
-                  currentMatch={currentMatch}
-                />
-              ) : activePhase === 'semifinals' ? (
-                <SemifinalsPhasePresentation
-                  tournament={tournament}
-                  currentRound={currentRound}
-                  currentMatch={currentMatch}
-                />
-              ) : activePhase === 'qualifiers' ? (
-                <QualifiersPhasePresentation tournament={tournament} />
-              ) : activePhase === 'group_stage' ? (
-                <GroupStagePhasePresentation
-                  tournament={tournament}
-                  currentRound={currentRound}
-                  currentMatch={currentMatch}
-                />
-              ) : (
-                <KnockoutPhasePresentation
-                  tournament={tournament}
-                  currentRound={currentRound}
-                  currentMatch={currentMatch}
-                />
-              )}
-            </motion.div>
+      <main className="flex-1 w-full h-[calc(100dvh-56px)] sm:h-[calc(100dvh-64px)] overflow-hidden flex flex-col p-2 sm:p-4 select-none relative">
+        {/* Tournament Stage Container */}
+        <div
+          className={clsx(
+            'w-full flex flex-col justify-center items-center transition-all duration-300 overflow-hidden',
+            showCamera && cameraLayout === 'split' ? 'h-[58%] shrink-0' : 'h-full flex-1'
           )}
-        </AnimatePresence>
+        >
+          <AnimatePresence mode="wait">
+            {displayMode === 'tree' ? (
+              <motion.div
+                key="mode-tree"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.2 }}
+                className="w-full h-full flex flex-col justify-center overflow-auto rounded border border-border bg-[#0B0D12]"
+              >
+                <TournamentBracketTree tournament={tournament} isProjector={true} />
+              </motion.div>
+            ) : displayMode === 'duel' && currentMatch ? (
+              <motion.div
+                key="mode-duel"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.25 }}
+                className="w-full h-full flex items-center justify-center"
+              >
+                <LiveDuelSpotlight match={currentMatch} stageLabel={phaseTitle} />
+              </motion.div>
+            ) : (
+              // Phase-based views
+              <motion.div
+                key={`phase-${activePhase}`}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.22 }}
+                className="w-full h-full flex items-center justify-center"
+              >
+                {activePhase === 'champion' && champion ? (
+                  <ChampionPhasePresentation
+                    champion={champion}
+                    tournamentName={tournament.name}
+                    runnerUp={runnerUp}
+                    performanceResults={tournament.performanceResults}
+                  />
+                ) : activePhase === 'individual_performance' ? (
+                  <IndividualPerformancePhasePresentation
+                    tournament={tournament}
+                  />
+                ) : activePhase === 'final' ? (
+                  <FinalPhasePresentation
+                    tournament={tournament}
+                    currentMatch={currentMatch}
+                  />
+                ) : activePhase === 'semifinals' ? (
+                  <SemifinalsPhasePresentation
+                    tournament={tournament}
+                    currentRound={currentRound}
+                    currentMatch={currentMatch}
+                  />
+                ) : activePhase === 'qualifiers' ? (
+                  <QualifiersPhasePresentation tournament={tournament} />
+                ) : activePhase === 'group_stage' ? (
+                  <GroupStagePhasePresentation
+                    tournament={tournament}
+                    currentRound={currentRound}
+                    currentMatch={currentMatch}
+                  />
+                ) : (
+                  <KnockoutPhasePresentation
+                    tournament={tournament}
+                    currentRound={currentRound}
+                    currentMatch={currentMatch}
+                  />
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Live Arena Camera Split Dock (Bottom 40%) */}
+        {showCamera && cameraLayout === 'split' && (
+          <div className="w-full h-[40%] shrink-0 pt-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <ProjectorCameraWidget
+              layoutMode="split"
+              onToggleLayout={() => setCameraLayout('pip')}
+              onClose={() => setShowCamera(false)}
+            />
+          </div>
+        )}
+
+        {/* Floating PiP (Picture-in-Picture) Window */}
+        {showCamera && cameraLayout === 'pip' && (
+          <div className="fixed bottom-6 right-6 z-50 w-80 sm:w-96 h-48 sm:h-56 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <ProjectorCameraWidget
+              layoutMode="pip"
+              onToggleLayout={() => setCameraLayout('split')}
+              onClose={() => setShowCamera(false)}
+            />
+          </div>
+        )}
       </main>
     </div>
   )
