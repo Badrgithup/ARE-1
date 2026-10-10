@@ -593,23 +593,18 @@ export function ProjectorDisplay({
           </AnimatePresence>
         </div>
 
-        {/* Live Arena Camera Split Dock (Bottom 40%) */}
-        {showCamera && cameraLayout === 'split' && (
-          <div className="w-full h-[40%] shrink-0 pt-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
+        {/* Live Arena Camera Display (Split Dock or Floating PiP) */}
+        {showCamera && (
+          <div
+            className={
+              cameraLayout === 'split'
+                ? 'w-full h-[40%] shrink-0 pt-2 animate-in fade-in slide-in-from-bottom-4 duration-300'
+                : 'fixed bottom-6 right-6 z-50 w-80 sm:w-96 h-48 sm:h-56 shadow-2xl animate-in fade-in zoom-in-95 duration-200'
+            }
+          >
             <ProjectorCameraWidget
-              layoutMode="split"
-              onToggleLayout={() => setCameraLayout('pip')}
-              onClose={() => setShowCamera(false)}
-            />
-          </div>
-        )}
-
-        {/* Floating PiP (Picture-in-Picture) Window */}
-        {showCamera && cameraLayout === 'pip' && (
-          <div className="fixed bottom-6 right-6 z-50 w-80 sm:w-96 h-48 sm:h-56 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <ProjectorCameraWidget
-              layoutMode="pip"
-              onToggleLayout={() => setCameraLayout('split')}
+              layoutMode={cameraLayout}
+              onToggleLayout={() => setCameraLayout((prev) => (prev === 'split' ? 'pip' : 'split'))}
               onClose={() => setShowCamera(false)}
             />
           </div>

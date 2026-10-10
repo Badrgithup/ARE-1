@@ -31,23 +31,27 @@ export function ProjectorCameraWidget({
   const [isConnected, setIsConnected] = useState(false)
   const [isLive, setIsLive] = useState(false)
   const [fps, setFps] = useState(0)
-  const [lastFrameTime, setLastFrameTime] = useState<number | null>(null)
 
-  const frameCounterRef = useRef(0)
-  const lastFpsCalcRef = useRef(Date.now())
+  // Use refs for high-frequency telemetry to avoid React re-render thrashing
+  const lastFrameTimestampRef = useRef<number>(0)
+  const frameCounterRef = useRef<number>(0)
+  const lastFpsCalcRef = useRef<number>(Date.now())
 
   useEffect(() => {
-    // Connect to Socket.io relay on current origin
+    // Connect to Socket.io relay on current origin with persistent connection
     const socket = io(window.location.origin, {
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 20,
       reconnectionDelay: 1000,
+      timeout: 10000,
     })
 
     socketRef.current = socket
 
     socket.on('connect', () => {
       setIsConnected(true)
+      // Query current status immediately upon connecting / reconnecting
+      socket.emit('get-camera-status')
     })
 
     socket.on('disconnect', () => {
@@ -56,12 +60,15 @@ export function ProjectorCameraWidget({
     })
 
     socket.on('camera-status', (status: { online: boolean; count: number }) => {
-      setIsLive(status.online)
+      setIsLive(Boolean(status?.online))
+      if (!status?.online) {
+        setFps(0)
+      }
     })
 
     socket.on('camera-frame', (frameData: string) => {
+      lastFrameTimestampRef.current = Date.now()
       setIsLive(true)
-      setLastFrameTime(Date.now())
 
       if (imgRef.current) {
         imgRef.current.src = frameData
@@ -76,9 +83,9 @@ export function ProjectorCameraWidget({
       }
     })
 
-    // Heartbeat: detect if frames stop arriving for > 3 seconds
+    // Heartbeat: detect if frames stop arriving for > 4 seconds without touching socket connection
     const interval = setInterval(() => {
-      if (lastFrameTime && Date.now() - lastFrameTime > 3500) {
+      if (lastFrameTimestampRef.current > 0 && Date.now() - lastFrameTimestampRef.current > 4000) {
         setIsLive(false)
         setFps(0)
       }
@@ -89,7 +96,7 @@ export function ProjectorCameraWidget({
       socket.disconnect()
       socketRef.current = null
     }
-  }, [lastFrameTime])
+  }, []) // Mount-only effect: NEVER tear down socket on incoming frames
 
   return (
     <div

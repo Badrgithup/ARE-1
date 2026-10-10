@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 
 type FacingMode = 'environment' | 'user'
-type ResolutionPreset = '720p' | '480p'
+type ResolutionPreset = '720p' | '480p' | '360p'
 
 export default function CameraPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -25,12 +25,17 @@ export default function CameraPage() {
   const socketRef = useRef<Socket | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const wakeLockRef = useRef<any>(null)
+
+  // In-flight transmission guard to prevent buffer bloat & disconnects
+  const isTransmittingRef = useRef<boolean>(false)
+  const transmitTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // State
   const [isStreaming, setIsStreaming] = useState(false)
   const [isSocketConnected, setIsSocketConnected] = useState(false)
   const [facingMode, setFacingMode] = useState<FacingMode>('environment')
-  const [resolution, setResolution] = useState<ResolutionPreset>('720p')
+  const [resolution, setResolution] = useState<ResolutionPreset>('480p')
   const [error, setError] = useState<string | null>(null)
   const [fps, setFps] = useState(0)
   const [torchAvailable, setTorchAvailable] = useState(false)
@@ -61,8 +66,16 @@ export default function CameraPage() {
       stopVideoStream()
       setError(null)
 
-      const targetWidth = res === '720p' ? 1280 : 854
-      const targetHeight = res === '720p' ? 720 : 480
+      let targetWidth = 854
+      let targetHeight = 480
+
+      if (res === '720p') {
+        targetWidth = 1280
+        targetHeight = 720
+      } else if (res === '360p') {
+        targetWidth = 640
+        targetHeight = 360
+      }
 
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -103,6 +116,26 @@ export default function CameraPage() {
     [stopVideoStream]
   )
 
+  // Screen Wake Lock handlers
+  const requestWakeLock = useCallback(async () => {
+    try {
+      if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && (navigator as any).wakeLock) {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen')
+      }
+    } catch (err) {
+      console.warn('Wake lock request prevented:', err)
+    }
+  }, [])
+
+  const releaseWakeLock = useCallback(async () => {
+    try {
+      if (wakeLockRef.current) {
+        await wakeLockRef.current.release()
+        wakeLockRef.current = null
+      }
+    } catch {}
+  }, [])
+
   // Toggle torch / flashlight
   const toggleTorch = async () => {
     if (!streamRef.current) return
@@ -127,29 +160,60 @@ export default function CameraPage() {
     await startVideoStream(nextMode, resolution)
   }
 
-  // Initialize Socket.io connection
+  // Initialize Socket.io connection with persistent settings
   useEffect(() => {
     const socket = io(window.location.origin, {
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 20,
       reconnectionDelay: 1000,
+      timeout: 10000,
     })
 
     socketRef.current = socket
 
     socket.on('connect', () => {
       setIsSocketConnected(true)
+      if (isStreaming) {
+        socket.emit('start-stream', {
+          facingMode,
+          resolution,
+        })
+      }
     })
 
     socket.on('disconnect', () => {
       setIsSocketConnected(false)
+      isTransmittingRef.current = false
     })
 
     return () => {
       socket.disconnect()
       socketRef.current = null
     }
-  }, [])
+  }, [isStreaming, facingMode, resolution])
+
+  // Screen keep-alive effect
+  useEffect(() => {
+    if (isStreaming) {
+      requestWakeLock()
+    } else {
+      releaseWakeLock()
+    }
+    return () => {
+      releaseWakeLock()
+    }
+  }, [isStreaming, requestWakeLock, releaseWakeLock])
+
+  // Handle visibility change to restore wake lock if user returns to browser tab
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && isStreaming) {
+        requestWakeLock()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [isStreaming, requestWakeLock])
 
   // Start camera on mount
   useEffect(() => {
@@ -159,10 +223,12 @@ export default function CameraPage() {
     }
   }, [facingMode, resolution, startVideoStream, stopVideoStream])
 
-  // Broadcast loop: captures canvas frame every 80ms (~12.5 FPS)
+  // Broadcast loop: captures canvas frame every 90ms with backpressure flow control
   useEffect(() => {
     if (!isStreaming) {
       if (intervalRef.current) clearInterval(intervalRef.current)
+      if (transmitTimeoutRef.current) clearTimeout(transmitTimeoutRef.current)
+      isTransmittingRef.current = false
       if (socketRef.current) socketRef.current.emit('stop-stream')
       return
     }
@@ -176,12 +242,32 @@ export default function CameraPage() {
 
     // Set canvas dimensions based on resolution
     if (canvasRef.current) {
-      canvasRef.current.width = resolution === '720p' ? 1280 : 854
-      canvasRef.current.height = resolution === '720p' ? 720 : 480
+      let width = 854
+      let height = 480
+      if (resolution === '720p') {
+        width = 1280
+        height = 720
+      } else if (resolution === '360p') {
+        width = 640
+        height = 360
+      }
+      canvasRef.current.width = width
+      canvasRef.current.height = height
     }
 
     intervalRef.current = setInterval(() => {
-      if (!canvasRef.current || !videoRef.current || videoRef.current.readyState < 2) return
+      // BACKPRESSURE GUARD: If previous frame is still in transit, skip this frame
+      if (isTransmittingRef.current) {
+        return
+      }
+
+      if (!canvasRef.current || !videoRef.current || videoRef.current.readyState < 2) {
+        return
+      }
+
+      if (!socketRef.current || !socketRef.current.connected) {
+        return
+      }
 
       const ctx = canvasRef.current.getContext('2d')
       if (!ctx) return
@@ -194,12 +280,22 @@ export default function CameraPage() {
         canvasRef.current.height
       )
 
-      // JPEG compression at 0.6 quality gives crisp details with minimal bandwidth
-      const frameData = canvasRef.current.toDataURL('image/jpeg', 0.6)
+      // Adaptive JPEG quality: light, crisp, and under tunnel bandwidth limits
+      const quality = resolution === '720p' ? 0.55 : resolution === '480p' ? 0.48 : 0.45
+      const frameData = canvasRef.current.toDataURL('image/jpeg', quality)
 
-      if (socketRef.current && socketRef.current.connected) {
-        socketRef.current.emit('camera-frame', frameData)
-      }
+      // Mark transmitting and set safety fallback timeout (300ms)
+      isTransmittingRef.current = true
+      if (transmitTimeoutRef.current) clearTimeout(transmitTimeoutRef.current)
+      transmitTimeoutRef.current = setTimeout(() => {
+        isTransmittingRef.current = false
+      }, 300)
+
+      socketRef.current.emit('camera-frame', frameData, () => {
+        // Server acknowledged receipt: release transmission lock for next frame
+        if (transmitTimeoutRef.current) clearTimeout(transmitTimeoutRef.current)
+        isTransmittingRef.current = false
+      })
 
       // Track FPS
       frameCountRef.current++
@@ -209,10 +305,12 @@ export default function CameraPage() {
         frameCountRef.current = 0
         lastFpsCalcRef.current = now
       }
-    }, 80) // 12.5 FPS
+    }, 90) // ~11 FPS with flow control
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
+      if (transmitTimeoutRef.current) clearTimeout(transmitTimeoutRef.current)
+      isTransmittingRef.current = false
     }
   }, [isStreaming, facingMode, resolution])
 
@@ -310,31 +408,41 @@ export default function CameraPage() {
       {/* Settings drawer overlay */}
       {showSettings && (
         <div className="absolute top-14 left-0 right-0 z-30 bg-[#12151E] border-b border-[#232838] p-4 flex items-center justify-between font-mono text-xs shadow-2xl">
-          <div className="flex items-center gap-2">
-            <span className="text-text-muted uppercase">Resolution:</span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-text-muted uppercase text-[10px]">Res:</span>
             <button
               onClick={() => setResolution('720p')}
-              className={`px-3 py-1 rounded text-xs font-bold transition-colors ${
+              className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
                 resolution === '720p'
                   ? 'bg-accent-gold text-black'
                   : 'bg-[#181B26] text-text-secondary border border-[#232838]'
               }`}
             >
-              720p HD
+              720p
             </button>
             <button
               onClick={() => setResolution('480p')}
-              className={`px-3 py-1 rounded text-xs font-bold transition-colors ${
+              className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
                 resolution === '480p'
                   ? 'bg-accent-gold text-black'
                   : 'bg-[#181B26] text-text-secondary border border-[#232838]'
               }`}
             >
-              480p SD
+              480p (Default)
+            </button>
+            <button
+              onClick={() => setResolution('360p')}
+              className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
+                resolution === '360p'
+                  ? 'bg-accent-gold text-black'
+                  : 'bg-[#181B26] text-text-secondary border border-[#232838]'
+              }`}
+            >
+              360p (Light)
             </button>
           </div>
-          <span className="text-text-muted text-[11px]">
-            Facing: {facingMode === 'environment' ? 'Rear' : 'Front'}
+          <span className="text-text-muted text-[11px] shrink-0">
+            {facingMode === 'environment' ? 'Rear Cam' : 'Front Cam'}
           </span>
         </div>
       )}

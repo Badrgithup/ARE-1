@@ -29,63 +29,92 @@ const io = new SocketServer(server, {
     methods: ['GET', 'POST'],
   },
   maxHttpBufferSize: 5e6, // 5MB buffer for video frames
-  pingTimeout: 10000,
-  pingInterval: 5000,
+  pingTimeout: 20000,     // 20s timeout gives mobile networks room to breathe
+  pingInterval: 10000,    // 10s heartbeat
 })
 
-let activeStreamers = 0
+const activeStreamerIds = new Set()
 let lastFrameTimestamp = 0
+let wasMarkedOffline = false
+
+const getCameraStatus = () => {
+  const hasRecentFrames = lastFrameTimestamp > 0 && Date.now() - lastFrameTimestamp < 4500
+  const online = activeStreamerIds.size > 0 && hasRecentFrames
+  return { online, count: activeStreamerIds.size }
+}
 
 io.on('connection', (socket) => {
   // Immediately inform client of current camera status
-  socket.emit('camera-status', {
-    online: activeStreamers > 0 && Date.now() - lastFrameTimestamp < 5000,
-    count: activeStreamers,
+  socket.emit('camera-status', getCameraStatus())
+
+  // Allow clients to query status on-demand
+  socket.on('get-camera-status', (cb) => {
+    const status = getCameraStatus()
+    if (typeof cb === 'function') {
+      cb(status)
+    } else {
+      socket.emit('camera-status', status)
+    }
   })
 
   socket.on('start-stream', (meta) => {
     socket.data.isStreamer = true
-    activeStreamers++
+    activeStreamerIds.add(socket.id)
     lastFrameTimestamp = Date.now()
-    console.log(`[Arena Camera] Stream started by socket ${socket.id} (Active streamers: ${activeStreamers})`)
-    io.emit('camera-status', { online: true, count: activeStreamers, meta })
+    wasMarkedOffline = false
+    console.log(`[Arena Camera] Stream started by socket ${socket.id} (Active streamers: ${activeStreamerIds.size})`)
+    io.emit('camera-status', { online: true, count: activeStreamerIds.size, meta })
   })
 
-  socket.on('camera-frame', (frameData) => {
+  socket.on('camera-frame', (frameData, ack) => {
     lastFrameTimestamp = Date.now()
-    if (!socket.data.isStreamer) {
+    wasMarkedOffline = false
+
+    if (!activeStreamerIds.has(socket.id)) {
       socket.data.isStreamer = true
-      activeStreamers = Math.max(1, activeStreamers)
+      activeStreamerIds.add(socket.id)
+      io.emit('camera-status', { online: true, count: activeStreamerIds.size })
     }
+
     // Broadcast frame to all connected projector displays
     socket.broadcast.emit('camera-frame', frameData)
+
+    // Flow control acknowledgment callback to unlock streamer for next frame
+    if (typeof ack === 'function') {
+      ack()
+    }
   })
 
   socket.on('stop-stream', () => {
-    if (socket.data.isStreamer) {
-      socket.data.isStreamer = false
-      activeStreamers = Math.max(0, activeStreamers - 1)
-      console.log(`[Arena Camera] Stream stopped by socket ${socket.id} (Active streamers: ${activeStreamers})`)
-      io.emit('camera-status', { online: activeStreamers > 0, count: activeStreamers })
-    }
+    activeStreamerIds.delete(socket.id)
+    socket.data.isStreamer = false
+    console.log(`[Arena Camera] Stream stopped by socket ${socket.id} (Active streamers: ${activeStreamerIds.size})`)
+    io.emit('camera-status', getCameraStatus())
   })
 
   socket.on('disconnect', () => {
-    if (socket.data.isStreamer) {
-      activeStreamers = Math.max(0, activeStreamers - 1)
-      console.log(`[Arena Camera] Streamer disconnected ${socket.id} (Active streamers: ${activeStreamers})`)
-      io.emit('camera-status', { online: activeStreamers > 0, count: activeStreamers })
+    if (activeStreamerIds.has(socket.id)) {
+      activeStreamerIds.delete(socket.id)
+      console.log(`[Arena Camera] Streamer disconnected ${socket.id} (Active streamers: ${activeStreamerIds.size})`)
+      io.emit('camera-status', getCameraStatus())
     }
   })
 })
 
-// Stale frame watchdog: auto-mark offline if frames cease for > 4 seconds
+// Stale frame watchdog: notifies displays if frames pause without wiping streamer registrations
 setInterval(() => {
-  if (activeStreamers > 0 && Date.now() - lastFrameTimestamp > 4000) {
-    activeStreamers = 0
-    io.emit('camera-status', { online: false, count: 0, reason: 'timeout' })
+  if (activeStreamerIds.size > 0 && Date.now() - lastFrameTimestamp > 4000) {
+    if (!wasMarkedOffline) {
+      wasMarkedOffline = true
+      io.emit('camera-status', { online: false, count: activeStreamerIds.size, reason: 'timeout' })
+    }
+  } else if (activeStreamerIds.size > 0 && Date.now() - lastFrameTimestamp <= 4000) {
+    if (wasMarkedOffline) {
+      wasMarkedOffline = false
+      io.emit('camera-status', { online: true, count: activeStreamerIds.size })
+    }
   }
-}, 2000)
+}, 1500)
 
 server.listen(port, hostname, () => {
   console.log(`[RoboCup Server] Ready on http://${hostname}:${port}`)
