@@ -9,6 +9,7 @@ import { promisify } from 'util'
 import fs from 'fs'
 import path from 'path'
 import http from 'http'
+import net from 'net'
 import { fileURLToPath } from 'url'
 import { discoverCloudflared } from './cloudflared-discovery.mjs'
 
@@ -163,7 +164,7 @@ async function runDiagnostics() {
   console.log('')
 
   // 5. Check port 3000 listening
-  console.log('[5/5] Port 3000 Port Binding:')
+  console.log('[5/6] Port 3000 Port Binding:')
   try {
     const cmd = process.platform === 'win32' ? 'netstat -ano | findstr :3000' : 'netstat -tuln | grep 3000'
     const { stdout } = await execAsync(cmd, { windowsHide: true })
@@ -175,8 +176,41 @@ async function runDiagnostics() {
   } catch {
     console.log('  - Port 3000 check returned no active connections')
   }
+  console.log('')
+
+  // 6. Check Outbound Cloudflare Edge Egress (Port 7844 / 443)
+  console.log('[6/6] Cloudflare Edge Network Egress (Port 7844):')
+  const edgeReachability = await checkPortEgress('region1.v2.argotunnel.com', 7844, 3000)
+  if (edgeReachability.ok) {
+    console.log('  ✓ Port 7844 reachable: Outbound tunnel traffic allowed by network firewall')
+  } else {
+    console.log('  ⚠️ Port 7844 egress BLOCKED: Cloudflare edge (region1.v2.argotunnel.com:7844) is unreachable.')
+    console.log('    Reason: Restrictive firewall / University Wi-Fi blocks port 7844.')
+    console.log('    Impact: Cloudflare will return Error 1033 when viewers open trycloudflare.com.')
+    console.log('    Fix: Connect to Mobile Hotspot (4G/5G) or network that allows outbound port 7844.')
+  }
 
   console.log('\n' + '='.repeat(60) + '\n')
+}
+
+function checkPortEgress(host, port, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket()
+    socket.setTimeout(timeoutMs)
+    socket.on('connect', () => {
+      socket.destroy()
+      resolve({ ok: true })
+    })
+    socket.on('timeout', () => {
+      socket.destroy()
+      resolve({ ok: false, error: 'Connection timed out' })
+    })
+    socket.on('error', (err) => {
+      socket.destroy()
+      resolve({ ok: false, error: err.message })
+    })
+    socket.connect(port, host)
+  })
 }
 
 runDiagnostics().catch(console.error)

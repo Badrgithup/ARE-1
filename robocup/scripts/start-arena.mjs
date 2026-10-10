@@ -325,9 +325,15 @@ function startCloudflareTunnel(cloudflaredExe) {
   })
 
   try {
+    const requestedProtocol = (process.env.TUNNEL_PROTOCOL || 'http2').toLowerCase()
+    // cloudflared supports 'http2' (TCP), 'quic' (UDP), and 'auto'.
+    // Origin communication to localhost is always HTTP/1.1 by default.
+    const protocol = requestedProtocol === 'http1' ? 'http2' : requestedProtocol
+
+    logTunnel(`Using tunnel edge protocol: ${protocol} (origin is HTTP/1.1)`)
     cloudflareProcess = spawn(
       cloudflaredExe,
-      ['tunnel', '--url', `http://localhost:${PORT}`],
+      ['tunnel', '--protocol', protocol, '--url', `http://localhost:${PORT}`],
       {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,
@@ -433,6 +439,9 @@ function scheduleTunnelRestart(cloudflaredExe) {
   }, 3000)
 }
 
+// Persistent agent maintains keep-alive connection in ESTABLISHED state
+const internalHealthAgent = new http.Agent({ keepAlive: true, maxSockets: 2 })
+
 // Start continuous 5-second health verification loop
 function startHealthMonitor() {
   if (healthCheckTimer) clearInterval(healthCheckTimer)
@@ -442,8 +451,15 @@ function startHealthMonitor() {
 
     arenaState.lastHealthCheck = new Date()
 
-    // Query internal health check
-    const req = http.get(`http://127.0.0.1:${PORT}/api/health/tunnel`, (res) => {
+    // Query internal health check with keep-alive agent
+    const req = http.get(
+      {
+        hostname: '127.0.0.1',
+        port: PORT,
+        path: '/api/health/tunnel',
+        agent: internalHealthAgent,
+      },
+      (res) => {
       let data = ''
       res.on('data', (c) => (data += c.toString()))
       res.on('end', () => {
