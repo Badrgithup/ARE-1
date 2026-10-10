@@ -375,6 +375,7 @@ function startCloudflareTunnel(cloudflaredExe) {
     url: null,
   })
 
+  try {
     const tunnelArgs = [
       'tunnel',
       '--protocol', 'http1',

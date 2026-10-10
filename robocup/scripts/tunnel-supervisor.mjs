@@ -155,6 +155,7 @@ export function startTunnel(targetPort = 3000) {
 
   isIntentionallyStopped = false
 
+  try {
     // Configure cloudflared process arguments with explicit HTTP protocol
     const tunnelArgs = [
       'tunnel',
