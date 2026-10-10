@@ -8,6 +8,7 @@ import {
   completeRound,
   reshuffleCurrentRound,
 } from '@/lib/tournament-engine'
+import { startIndividualPerformanceMode } from '@/lib/individual-performance-engine'
 
 /**
  * Admin command endpoint for round/stage transitions.
@@ -15,6 +16,7 @@ import {
  * body.action:
  *  - 'start_next_round' (default) { batchSize? }
  *  - 'start_group_stage'          { format: '2-to-final' | '4-to-final' }
+ *  - 'start_individual_performance'
  *  - 'advance_from_group'
  *  - 'advance_from_semis'
  *  - 'complete_round'
@@ -35,6 +37,8 @@ export async function POST(
 
     const saved = await mutateTournament(id, (tournament) => {
       switch (action) {
+        case 'start_individual_performance':
+          return startIndividualPerformanceMode(tournament)
         case 'start_group_stage':
           return startGroupStageRound(tournament, format || '2-to-final')
         case 'advance_from_group':

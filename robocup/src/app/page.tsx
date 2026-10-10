@@ -8,6 +8,7 @@ import { TournamentLoadingScreen } from '@/components/tournament/TournamentLoadi
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { PlusIcon, HistoryIcon, TrophyIcon, RobotIcon } from '@/components/icons'
 import { broadcastActiveTournament } from '@/lib/tournament-sync'
 import type { Robot, TournamentSummary } from '@/lib/types'
 
@@ -116,8 +117,9 @@ export default function HomePage() {
         {/* Left Column: Competition Setup (7 Cols) */}
         <div className="lg:col-span-7 flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wider font-mono">
-              New Tournament Setup
+            <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wider font-mono flex items-center gap-2">
+              <PlusIcon size={16} className="text-accent-gold" />
+              <span>New Tournament Setup</span>
             </h2>
             <span className="text-xs text-text-muted font-mono">Stage: Initialization</span>
           </div>
@@ -134,8 +136,9 @@ export default function HomePage() {
         {/* Right Column: Existing Sessions & Archive Quick-Access (5 Cols) */}
         <div className="lg:col-span-5 flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wider font-mono">
-              Recent Competitions
+            <h2 className="text-sm font-semibold text-text-primary uppercase tracking-wider font-mono flex items-center gap-2">
+              <HistoryIcon size={16} className="text-accent-gold" />
+              <span>Recent Competitions</span>
             </h2>
             <Link
               href="/history"
@@ -176,8 +179,11 @@ export default function HomePage() {
                           {t.name}
                         </h4>
                         {t.winner && (
-                          <p className="text-[11px] text-text-secondary font-mono truncate mt-0.5">
-                            Champion: <span className="text-accent-gold font-semibold">{t.winner.name}</span> ({t.winner.club})
+                          <p className="text-[11px] text-text-secondary font-mono truncate mt-0.5 flex items-center gap-1">
+                            <TrophyIcon size={12} className="text-accent-gold shrink-0" />
+                            <span>
+                              Champion: <span className="text-accent-gold font-semibold">{t.winner.name}</span> ({t.winner.club})
+                            </span>
                           </p>
                         )}
                       </div>

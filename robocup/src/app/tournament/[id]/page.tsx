@@ -17,6 +17,7 @@ import { GroupStandingsTable } from '@/components/tournament/GroupStandingsTable
 import { StageTimeline } from '@/components/tournament/StageTimeline'
 import { TournamentBracketView } from '@/components/tournament/TournamentBracketView'
 import { ArenaPresentationModal } from '@/components/tournament/ArenaPresentationModal'
+import { IndividualPerformanceScreen } from '@/components/tournament/IndividualPerformanceScreen'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { DEFAULT_BATCH_SIZE } from '@/lib/constants'
@@ -25,7 +26,7 @@ import { Tv, ExternalLink } from 'lucide-react'
 import { broadcastActiveTournament } from '@/lib/tournament-sync'
 import type { TournamentConfig } from '@/lib/types'
 
-type TournamentView = 'pairings' | 'match' | 'roundSummary' | 'groupConfig' | 'champion' | 'bracket' | 'stats'
+type TournamentView = 'pairings' | 'match' | 'roundSummary' | 'groupConfig' | 'individualPerformance' | 'champion' | 'bracket' | 'stats'
 
 export default function TournamentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -45,6 +46,8 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
     startGroupStage,
     advanceFromGroup,
     advanceFromSemis,
+    startIndividualPerformance,
+    recordPerformance,
     reRandomize,
     setCurrentMatchIndex,
   } = useTournament(id)
@@ -54,6 +57,13 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
   const [view, setView] = useState<TournamentView>('pairings')
   const [batchSize, setBatchSize] = useState(DEFAULT_BATCH_SIZE)
   const [isArenaModalOpen, setIsArenaModalOpen] = useState(false)
+
+  // Switch to individual performance view when stage is active
+  useEffect(() => {
+    if (tournament?.currentStage === 'individual_performance') {
+      setView('individualPerformance')
+    }
+  }, [tournament?.currentStage])
 
   // Switch to champion view when tournament completes
   useEffect(() => {
@@ -123,8 +133,10 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
       return
     }
 
-    if (activeRobots.length >= 5 && activeRobots.length <= 9) {
-      setView('groupConfig')
+    // When exactly 3 combatants remain, advance to Individual Performance Mode
+    if (activeRobots.length === 3) {
+      await startIndividualPerformance()
+      setView('individualPerformance')
       return
     }
 
@@ -215,8 +227,8 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
         : 'Advance to Championship Final (Top 2)'
   } else if (currentRound?.stage === 'semifinals') {
     nextStageLabel = 'Advance to Championship Final'
-  } else if (activeRobots.length >= 5 && activeRobots.length <= 9) {
-    nextStageLabel = `Setup ${activeRobots.length === 5 ? '5-Robot' : `${activeRobots.length}-Robot`} Group Stage`
+  } else if (activeRobots.length === 3) {
+    nextStageLabel = 'Advance to Individual Performance Mode (Top 3)'
   }
 
   const isCurrentGroupStage = currentRound?.stage === 'group_stage'
@@ -236,6 +248,8 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
             <Badge variant={isChampionDetermined ? 'green' : 'gold'}>
               {isChampionDetermined
                 ? 'Concluded'
+                : tournament.currentStage === 'individual_performance'
+                ? 'Performance Mode'
                 : currentRound?.stage === 'group_stage'
                 ? 'Group Stage'
                 : currentRound?.stage === 'semifinals'
@@ -267,14 +281,25 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
 
         {/* View Switcher Controls */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <Button
-            variant={view === 'pairings' || view === 'match' ? 'primary' : 'secondary'}
-            size="sm"
-            onClick={() => setView('pairings')}
-            className="font-mono text-xs"
-          >
-            Match Control
-          </Button>
+          {tournament.currentStage === 'individual_performance' ? (
+            <Button
+              variant={view === 'individualPerformance' ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => setView('individualPerformance')}
+              className="font-mono text-xs"
+            >
+              Performance Judging
+            </Button>
+          ) : (
+            <Button
+              variant={view === 'pairings' || view === 'match' ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => setView('pairings')}
+              className="font-mono text-xs"
+            >
+              Match Control
+            </Button>
+          )}
 
           <Button
             variant={view === 'bracket' ? 'primary' : 'secondary'}
@@ -329,6 +354,20 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
       />
 
       {/* 3. Main Operational View Area */}
+
+      {/* View: Individual Performance Judging */}
+      {view === 'individualPerformance' && (
+        <IndividualPerformanceScreen
+          tournament={tournament}
+          onRecordPerformance={async (robotId, time, points) => {
+            await recordPerformance(robotId, time, points)
+          }}
+          onViewPodium={() => {
+            setView('champion')
+            fireChampion()
+          }}
+        />
+      )}
 
       {/* View: Champion Concluded Dashboard */}
       {view === 'champion' && (

@@ -248,6 +248,52 @@ export function useTournament(tournamentId: string | null) {
     }
   }
 
+  const startIndividualPerformance = async () => {
+    if (!tournamentId || !tournament) return
+    setIsLoading(true)
+    try {
+      const res = await fetch(`/api/tournament/${tournamentId}/round`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start_individual_performance' }),
+      })
+      const json = await res.json()
+      if (json.success && json.data) {
+        setTournament(json.data)
+        broadcastTournamentUpdate(json.data)
+      } else {
+        throw new Error(json.error || 'Failed to start individual performance mode')
+      }
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const recordPerformance = async (robotId: string, time: number, points: number) => {
+    if (!tournamentId || !tournament) return
+    setIsLoading(true)
+    try {
+      const res = await fetch(`/api/tournament/${tournamentId}/performance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ robotId, time, points }),
+      })
+      const json = await res.json()
+      if (json.success && json.data) {
+        setTournament(json.data)
+        broadcastTournamentUpdate(json.data)
+      } else {
+        throw new Error(json.error || 'Failed to record performance')
+      }
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const reRandomize = async (batchSize?: number) => {
     if (!tournamentId || !tournament) return
     setIsLoading(true)
@@ -323,6 +369,7 @@ export function useTournament(tournamentId: string | null) {
     isLoading, error, lastRecordedMatchId, isChampionDetermined,
     createTournament, loadTournament, selectWinner, undoMatch,
     startNextRound, startGroupStage, advanceFromGroup, advanceFromSemis,
+    startIndividualPerformance, recordPerformance,
     reRandomize, setCurrentMatchIndex,
   }
 }

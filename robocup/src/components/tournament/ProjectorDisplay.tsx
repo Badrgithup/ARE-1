@@ -17,7 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import clsx from 'clsx'
-import type { Tournament, Match, Robot } from '@/lib/types'
+import type { Tournament, Match, Robot, PerformanceRanking } from '@/lib/types'
 import { TournamentBracketTree } from './TournamentBracketTree'
 import { calculateMultiGroupStandings, getGroupAdvancers } from '@/lib/group-stage-engine'
 
@@ -35,6 +35,7 @@ export type ProjectorPhase =
   | 'knockout'
   | 'semifinals'
   | 'final'
+  | 'individual_performance'
   | 'champion'
 
 type DisplayMode = 'phase' | 'tree' | 'duel' | 'champion'
@@ -45,6 +46,10 @@ type DisplayMode = 'phase' | 'tree' | 'duel' | 'champion'
 function detectCurrentPhase(tournament: Tournament): ProjectorPhase {
   if (tournament.status === 'completed' && tournament.winner) {
     return 'champion'
+  }
+
+  if (tournament.currentStage === 'individual_performance') {
+    return 'individual_performance'
   }
 
   const currentRound = tournament.rounds[tournament.rounds.length - 1]
@@ -224,6 +229,13 @@ export function ProjectorDisplay({
       phases.push({ id: 'semifinals', label: 'Semifinals' })
     }
 
+    if (
+      tournament.currentStage === 'individual_performance' ||
+      (tournament.performances && tournament.performances.length > 0)
+    ) {
+      phases.push({ id: 'individual_performance', label: 'Trials' })
+    }
+
     phases.push({ id: 'final', label: 'Final' })
 
     if (tournament.status === 'completed' || tournament.winner) {
@@ -248,6 +260,8 @@ export function ProjectorDisplay({
         return 'SEMIFINALS · FINAL FOUR'
       case 'final':
         return 'CHAMPIONSHIP FINAL'
+      case 'individual_performance':
+        return 'INDIVIDUAL PERFORMANCE TRIALS · TOP 3'
       case 'champion':
         return 'TOURNAMENT CHAMPION'
       default:
@@ -514,6 +528,11 @@ export function ProjectorDisplay({
                   champion={champion}
                   tournamentName={tournament.name}
                   runnerUp={runnerUp}
+                  performanceResults={tournament.performanceResults}
+                />
+              ) : activePhase === 'individual_performance' ? (
+                <IndividualPerformancePhasePresentation
+                  tournament={tournament}
                 />
               ) : activePhase === 'final' ? (
                 <FinalPhasePresentation
@@ -1278,17 +1297,19 @@ function ChampionPhasePresentation({
   champion,
   tournamentName,
   runnerUp,
+  performanceResults,
 }: {
   champion: Robot
   tournamentName: string
   runnerUp: Robot | null
+  performanceResults?: PerformanceRanking[] | null
 }) {
   return (
-    <div className="w-full max-w-3xl flex flex-col items-center justify-center text-center gap-6 py-6 my-auto font-mono">
+    <div className="w-full max-w-4xl flex flex-col items-center justify-center text-center gap-5 py-4 my-auto font-mono">
       {/* Trophy with pulsing radial aura */}
       <div className="relative">
-        <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-full bg-accent-gold/20 border-2 border-accent-gold flex items-center justify-center shadow-2xl animate-pulse">
-          <Trophy className="w-16 h-16 sm:w-20 sm:h-20 text-accent-gold" />
+        <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-accent-gold/20 border-2 border-accent-gold flex items-center justify-center shadow-2xl animate-pulse">
+          <Trophy className="w-12 h-12 sm:w-16 sm:h-16 text-accent-gold" />
         </div>
         <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-accent-gold text-[#0B0D12] text-xs font-bold uppercase px-3 py-0.5 rounded-full shadow-md">
           VICTOR
@@ -1296,40 +1317,251 @@ function ChampionPhasePresentation({
       </div>
 
       <div>
-        <span className="text-xs sm:text-sm uppercase tracking-widest text-accent-gold font-bold">
+        <span className="text-xs uppercase tracking-widest text-accent-gold font-bold">
           OFFICIAL ARENA VICTOR CROWNED
         </span>
-        <h1 className="text-4xl sm:text-7xl font-black text-text-primary tracking-tight mt-1">
+        <h1 className="text-3xl sm:text-6xl font-black text-text-primary tracking-tight mt-1">
           {champion.name}
         </h1>
-        <p className="text-base sm:text-xl text-text-secondary mt-2">
+        <p className="text-sm sm:text-lg text-text-secondary mt-1">
           {champion.club} {champion.institution && `· ${champion.institution}`}
         </p>
-        <p className="text-xs text-text-muted mt-1 uppercase tracking-wider font-semibold">
+        <p className="text-[11px] text-text-muted uppercase tracking-wider font-semibold mt-0.5">
           {tournamentName}
         </p>
       </div>
 
-      {/* Stats Cards */}
-      <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 p-4 rounded bg-bg-surface border border-accent-gold/40 shadow-xl">
-        <div className="text-center px-4">
-          <span className="text-[10px] uppercase text-text-muted block">Tournament Wins</span>
-          <span className="text-2xl font-black text-accent-gold">{champion.wins}</span>
+      {/* Official 3-Robot Podium if tournament concluded via performance mode */}
+      {performanceResults && performanceResults.length >= 3 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full mt-1">
+          {performanceResults.map((res) => {
+            const isGold = res.medal === 'gold'
+            const isSilver = res.medal === 'silver'
+            return (
+              <div
+                key={res.robot.id}
+                className={`p-3.5 rounded border text-left flex flex-col justify-between transition-all ${
+                  isGold
+                    ? 'bg-accent-gold/10 border-accent-gold/60 order-1 sm:order-2 shadow-lg sm:-translate-y-1'
+                    : isSilver
+                    ? 'bg-bg-surface border-slate-600/60 order-2 sm:order-1'
+                    : 'bg-bg-surface border-amber-900/60 order-3 sm:order-3'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between text-xs font-bold uppercase mb-1">
+                    <span className={isGold ? 'text-accent-gold' : isSilver ? 'text-slate-300' : 'text-amber-500'}>
+                      {isGold ? '1st Place' : isSilver ? '2nd Place' : '3rd Place'}
+                    </span>
+                    <span className="text-text-muted">#{res.ranking}</span>
+                  </div>
+                  <h4 className="text-sm font-bold text-text-primary truncate">{res.robot.name}</h4>
+                  <p className="text-[10px] text-text-muted truncate">{res.robot.club}</p>
+                </div>
+                <div className="mt-3 pt-2 border-t border-border/60 flex items-center justify-between text-xs font-bold">
+                  <span className="text-accent-gold">{res.points} pts</span>
+                  <span className="text-text-muted">{res.time.toFixed(1)}s</span>
+                </div>
+              </div>
+            )
+          })}
         </div>
-        <div className="h-8 w-px bg-border hidden sm:block" />
-        <div className="text-center px-4">
-          <span className="text-[10px] uppercase text-text-muted block">Title Status</span>
-          <span className="text-sm font-bold text-emerald-400">Undefeated Champion</span>
+      ) : (
+        /* Standard Stats Cards */
+        <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 p-4 rounded bg-bg-surface border border-accent-gold/40 shadow-xl">
+          <div className="text-center px-4">
+            <span className="text-[10px] uppercase text-text-muted block">Tournament Wins</span>
+            <span className="text-2xl font-black text-accent-gold">{champion.wins}</span>
+          </div>
+          <div className="h-8 w-px bg-border hidden sm:block" />
+          <div className="text-center px-4">
+            <span className="text-[10px] uppercase text-text-muted block">Title Status</span>
+            <span className="text-sm font-bold text-emerald-400">Undefeated Champion</span>
+          </div>
+          {runnerUp && (
+            <>
+              <div className="h-8 w-px bg-border hidden sm:block" />
+              <div className="text-center px-4">
+                <span className="text-[10px] uppercase text-text-muted block">Honorary Runner-Up</span>
+                <span className="text-sm font-bold text-text-primary">{runnerUp.name}</span>
+              </div>
+            </>
+          )}
         </div>
-        {runnerUp && (
-          <>
-            <div className="h-8 w-px bg-border hidden sm:block" />
-            <div className="text-center px-4">
-              <span className="text-[10px] uppercase text-text-muted block">Honorary Runner-Up</span>
-              <span className="text-sm font-bold text-text-primary">{runnerUp.name}</span>
+      )}
+    </div>
+  )
+}
+
+/* =========================================================================
+   PHASE 7: INDIVIDUAL PERFORMANCE PRESENTATION (TOP 3 COMBATANTS)
+   Full-screen projection of solo performance trials and live scores.
+   ========================================================================= */
+function IndividualPerformancePhasePresentation({
+  tournament,
+}: {
+  tournament: Tournament
+}) {
+  const activeRobots = tournament.robots.filter((r) => r.status === 'active')
+  const completedPerformances = tournament.performances || []
+  const unperformedRobots = activeRobots.filter(
+    (r) => !completedPerformances.some((p) => p.robotId === r.id)
+  )
+  const currentRobot = unperformedRobots[0] || null
+  const rankings = tournament.performanceResults || null
+
+  return (
+    <div className="w-full max-w-6xl h-full flex flex-col justify-between p-2 sm:p-6 font-mono select-none">
+      {/* Header telemetry */}
+      <div className="flex items-center justify-between border-b border-border/80 pb-3">
+        <div>
+          <span className="text-xs uppercase tracking-widest text-accent-gold font-bold">
+            STAGE 5 · SOLO PERFORMANCE TRIALS
+          </span>
+          <h2 className="text-xl sm:text-2xl font-black text-text-primary tracking-tight">
+            TOP 3 COMBATANTS SKILLS & TIME RUNS
+          </h2>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-text-muted">Trials Complete:</span>
+          <span className="text-sm font-bold text-accent-gold bg-accent-gold/10 border border-accent-gold/30 px-3 py-1 rounded">
+            {completedPerformances.length} / {activeRobots.length}
+          </span>
+        </div>
+      </div>
+
+      {/* Main Grid */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 my-auto items-center py-4">
+        {/* Left 6 cols: Active Trial Spotlight */}
+        <div className="lg:col-span-6 flex flex-col justify-center gap-4">
+          {currentRobot ? (
+            <div className="bg-bg-surface/90 border-2 border-accent-gold rounded-xl p-6 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 bg-accent-gold text-[#0B0D12] text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-bl">
+                ACTIVE ON ARENA
+              </div>
+              <div className="text-[10px] uppercase tracking-wider text-text-muted">
+                CURRENT COMBATANT ON TEST BENCH
+              </div>
+              <h3 className="text-3xl sm:text-4xl font-black text-text-primary mt-1 tracking-tight">
+                {currentRobot.name}
+              </h3>
+              <p className="text-sm text-accent-gold font-semibold mt-1">
+                {currentRobot.club} {currentRobot.institution && `· ${currentRobot.institution}`}
+              </p>
+
+              <div className="mt-6 pt-4 border-t border-border grid grid-cols-2 gap-4 text-center">
+                <div className="bg-bg-card p-3 rounded border border-border/60">
+                  <span className="text-[10px] text-text-muted uppercase block">Primary Score</span>
+                  <span className="text-sm text-text-secondary mt-1 block">Awaiting Judge</span>
+                </div>
+                <div className="bg-bg-card p-3 rounded border border-border/60">
+                  <span className="text-[10px] text-text-muted uppercase block">Elapsed Time</span>
+                  <span className="text-sm text-text-secondary mt-1 block">Awaiting Timer</span>
+                </div>
+              </div>
             </div>
-          </>
-        )}
+          ) : (
+            <div className="bg-bg-surface/90 border border-accent-gold/60 rounded-xl p-8 text-center flex flex-col items-center justify-center gap-3">
+              <div className="w-14 h-14 rounded-full bg-accent-gold/20 border border-accent-gold flex items-center justify-center text-accent-gold">
+                <Check className="w-8 h-8" />
+              </div>
+              <h3 className="text-2xl font-bold text-text-primary">All Trials Completed</h3>
+              <p className="text-xs text-text-secondary">
+                Official times and scores confirmed. Calculating final podium placements.
+              </p>
+            </div>
+          )}
+
+          {/* Up Next Queue */}
+          {unperformedRobots.length > 1 && (
+            <div className="flex items-center gap-3 text-xs bg-bg-card/80 p-3 rounded border border-border">
+              <span className="text-text-muted uppercase text-[10px] font-bold">On Deck:</span>
+              <span className="text-text-primary font-bold">
+                {unperformedRobots[1]?.name} ({unperformedRobots[1]?.club})
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Right 6 cols: Live Standings / Recorded Runs */}
+        <div className="lg:col-span-6 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wider text-text-secondary font-bold">
+              OFFICIAL TRIAL LEADERBOARD
+            </span>
+            <span className="text-[10px] text-text-muted">Ranked by points (tiebreaker: time)</span>
+          </div>
+
+          <div className="bg-bg-surface/90 border border-border rounded-xl divide-y divide-border/60 overflow-hidden shadow-xl">
+            {completedPerformances.length === 0 ? (
+              <div className="p-8 text-center text-xs text-text-muted">
+                No performances submitted yet. Judging in progress...
+              </div>
+            ) : rankings ? (
+              rankings.map((res) => (
+                <div
+                  key={res.robot.id}
+                  className="p-4 flex items-center justify-between hover:bg-bg-card/80 transition-colors gap-4"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div
+                      className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm ${
+                        res.medal === 'gold'
+                          ? 'bg-accent-gold/20 text-accent-gold border border-accent-gold/50 shadow-md'
+                          : res.medal === 'silver'
+                          ? 'bg-slate-300/20 text-slate-200 border border-slate-400/50'
+                          : 'bg-amber-800/20 text-amber-500 border border-amber-700/50'
+                      }`}
+                    >
+                      #{res.ranking}
+                    </div>
+                    <div>
+                      <h4 className="text-base font-bold text-text-primary">{res.robot.name}</h4>
+                      <p className="text-xs text-text-muted">{res.robot.club}</p>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-lg font-black text-accent-gold tabular-nums block">
+                      {res.points} pts
+                    </span>
+                    <span className="text-xs text-text-muted tabular-nums">
+                      {res.time.toFixed(1)}s
+                    </span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              completedPerformances.map((perf, idx) => {
+                const r = activeRobots.find((bot) => bot.id === perf.robotId)
+                return (
+                  <div
+                    key={perf.id}
+                    className="p-4 flex items-center justify-between hover:bg-bg-card/80 transition-colors gap-4"
+                  >
+                    <div className="flex items-center gap-3.5">
+                      <span className="text-sm font-bold text-text-muted">#{idx + 1}</span>
+                      <div>
+                        <h4 className="text-base font-bold text-text-primary">
+                          {r?.name || 'Combatant'}
+                        </h4>
+                        <p className="text-xs text-text-muted">{r?.club}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-lg font-black text-accent-gold tabular-nums block">
+                        {perf.points} pts
+                      </span>
+                      <span className="text-xs text-text-muted tabular-nums">
+                        {perf.time.toFixed(1)}s
+                      </span>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )

@@ -4,6 +4,8 @@ import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
+import { PlusIcon } from '@/components/icons'
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isProjector = pathname ? pathname.includes('/projector') : false
@@ -61,9 +63,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary border border-border rounded hover:border-border-strong transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary border border-border rounded hover:border-border-strong transition-colors flex items-center gap-1.5"
             >
-              + New Tournament
+              <PlusIcon size={13} className="text-accent-gold" />
+              <span>New Tournament</span>
             </Link>
           </div>
         </div>

@@ -41,6 +41,15 @@ export function StageTimeline({
     }
   })
 
+  // If in individual performance stage or completed with performance results
+  if (tournament.currentStage === 'individual_performance' || tournament.performanceResults) {
+    steps.push({
+      label: 'Performance Mode',
+      sublabel: '3 Combatants',
+      status: tournament.status === 'completed' ? 'completed' : 'active',
+    })
+  }
+
   // If completed, add Champion step
   if (tournament.status === 'completed' && tournament.winner) {
     steps.push({

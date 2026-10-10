@@ -4,6 +4,7 @@ import React from 'react'
 import { Card } from '../ui/Card'
 import { Button } from '../ui/Button'
 import { Badge } from '../ui/Badge'
+import { PlayIcon } from '../icons'
 import type { Round } from '@/lib/types'
 
 export interface RoundSummaryProps {
@@ -44,11 +45,12 @@ export function RoundSummary({
           </div>
 
           <Button size="md" variant="primary" onClick={onStartNextRound} className="font-mono text-xs">
+            <PlayIcon size={13} className="mr-1.5" />
             {isFinal
-              ? 'View Champion & Final Standings →'
+              ? 'View Champion & Final Standings'
               : nextStageLabel
-              ? `${nextStageLabel} →`
-              : `Proceed to Round ${round.roundNumber + 1} →`}
+              ? nextStageLabel
+              : `Proceed to Round ${round.roundNumber + 1}`}
           </Button>
         </div>
 

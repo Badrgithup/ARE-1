@@ -65,6 +65,22 @@ export interface GroupStanding {
   groupName?: string
 }
 
+export interface IndividualPerformance {
+  id: string
+  robotId: string
+  time: number // seconds, e.g. 45.3
+  points: number // score, e.g. 120
+  timestamp: string
+}
+
+export interface PerformanceRanking {
+  ranking: number // 1, 2, 3
+  robot: Robot
+  time: number
+  points: number
+  medal: 'gold' | 'silver' | 'bronze'
+}
+
 export interface Tournament {
   id: string
   name: string
@@ -76,8 +92,10 @@ export interface Tournament {
   robots: Robot[]
   winner: Robot | null
   status: 'not_started' | 'in_progress' | 'completed'
-  currentStage?: 'elimination' | 'group_config' | 'group_stage' | 'semifinals' | 'final' | 'completed'
+  currentStage?: 'elimination' | 'group_config' | 'group_stage' | 'individual_performance' | 'semifinals' | 'final' | 'completed'
   config?: TournamentConfig
+  performances?: IndividualPerformance[]
+  performanceResults?: PerformanceRanking[]
   /** Monotonic server revision. Incremented on every authoritative save. Clients ignore older revisions. */
   revision?: number
   /** Server timestamp of the last authoritative save */
@@ -90,12 +108,14 @@ export interface TournamentSummary {
   status: 'not_started' | 'in_progress' | 'completed'
   totalRobots: number
   currentRound: number
-  currentStage?: 'elimination' | 'group_config' | 'group_stage' | 'semifinals' | 'final' | 'completed'
+  currentStage?: 'elimination' | 'group_config' | 'group_stage' | 'individual_performance' | 'semifinals' | 'final' | 'completed'
   winner: Robot | null
   startTime: string
   endTime: string | null
   updatedAt: string
   config?: TournamentConfig
+  performances?: IndividualPerformance[]
+  performanceResults?: PerformanceRanking[]
 }
 
 export interface TournamentStats {
