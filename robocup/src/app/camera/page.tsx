@@ -18,6 +18,7 @@ import {
 
 type FacingMode = 'environment' | 'user'
 type ResolutionPreset = '720p' | '480p' | '360p'
+type FpsPreset = 30 | 24 | 15
 
 export default function CameraPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -27,15 +28,12 @@ export default function CameraPage() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const wakeLockRef = useRef<any>(null)
 
-  // In-flight transmission guard to prevent buffer bloat & disconnects
-  const isTransmittingRef = useRef<boolean>(false)
-  const transmitTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-
   // State
   const [isStreaming, setIsStreaming] = useState(false)
   const [isSocketConnected, setIsSocketConnected] = useState(false)
   const [facingMode, setFacingMode] = useState<FacingMode>('environment')
   const [resolution, setResolution] = useState<ResolutionPreset>('480p')
+  const [targetFps, setTargetFps] = useState<FpsPreset>(24)
   const [error, setError] = useState<string | null>(null)
   const [fps, setFps] = useState(0)
   const [torchAvailable, setTorchAvailable] = useState(false)
@@ -183,7 +181,6 @@ export default function CameraPage() {
 
     socket.on('disconnect', () => {
       setIsSocketConnected(false)
-      isTransmittingRef.current = false
     })
 
     return () => {
@@ -223,12 +220,10 @@ export default function CameraPage() {
     }
   }, [facingMode, resolution, startVideoStream, stopVideoStream])
 
-  // Broadcast loop: captures canvas frame every 90ms with backpressure flow control
+  // Broadcast loop: captures canvas frame at target FPS (default 24 FPS) with non-blocking volatile streaming
   useEffect(() => {
     if (!isStreaming) {
       if (intervalRef.current) clearInterval(intervalRef.current)
-      if (transmitTimeoutRef.current) clearTimeout(transmitTimeoutRef.current)
-      isTransmittingRef.current = false
       if (socketRef.current) socketRef.current.emit('stop-stream')
       return
     }
@@ -237,6 +232,7 @@ export default function CameraPage() {
       socketRef.current.emit('start-stream', {
         facingMode,
         resolution,
+        fps: targetFps,
       })
     }
 
@@ -255,17 +251,22 @@ export default function CameraPage() {
       canvasRef.current.height = height
     }
 
-    intervalRef.current = setInterval(() => {
-      // BACKPRESSURE GUARD: If previous frame is still in transit, skip this frame
-      if (isTransmittingRef.current) {
-        return
-      }
+    // Smooth real-time interval (e.g. ~41ms for 24 FPS, ~33ms for 30 FPS)
+    const intervalMs = Math.max(25, Math.round(1000 / targetFps))
 
+    intervalRef.current = setInterval(() => {
       if (!canvasRef.current || !videoRef.current || videoRef.current.readyState < 2) {
         return
       }
 
       if (!socketRef.current || !socketRef.current.connected) {
+        return
+      }
+
+      // Check client-side WebSocket send buffer: if congested (>96KB), drop frame to maintain real-time latency
+      const transport = (socketRef.current?.io?.engine as any)?.transport
+      const ws = transport?.ws
+      if (ws && typeof ws.bufferedAmount === 'number' && ws.bufferedAmount > 98304) {
         return
       }
 
@@ -280,22 +281,16 @@ export default function CameraPage() {
         canvasRef.current.height
       )
 
-      // Adaptive JPEG quality: light, crisp, and under tunnel bandwidth limits
-      const quality = resolution === '720p' ? 0.55 : resolution === '480p' ? 0.48 : 0.45
+      // Quality tuned for rapid encoding and high framerate throughput
+      const quality = resolution === '720p' ? 0.50 : resolution === '480p' ? 0.44 : 0.42
       const frameData = canvasRef.current.toDataURL('image/jpeg', quality)
 
-      // Mark transmitting and set safety fallback timeout (300ms)
-      isTransmittingRef.current = true
-      if (transmitTimeoutRef.current) clearTimeout(transmitTimeoutRef.current)
-      transmitTimeoutRef.current = setTimeout(() => {
-        isTransmittingRef.current = false
-      }, 300)
-
-      socketRef.current.emit('camera-frame', frameData, () => {
-        // Server acknowledged receipt: release transmission lock for next frame
-        if (transmitTimeoutRef.current) clearTimeout(transmitTimeoutRef.current)
-        isTransmittingRef.current = false
-      })
+      // Volatile emit: UDP-style real-time delivery without blocking roundtrip ACKs
+      if (socketRef.current.volatile) {
+        socketRef.current.volatile.emit('camera-frame', frameData)
+      } else {
+        socketRef.current.emit('camera-frame', frameData)
+      }
 
       // Track FPS
       frameCountRef.current++
@@ -305,14 +300,12 @@ export default function CameraPage() {
         frameCountRef.current = 0
         lastFpsCalcRef.current = now
       }
-    }, 90) // ~11 FPS with flow control
+    }, intervalMs)
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
-      if (transmitTimeoutRef.current) clearTimeout(transmitTimeoutRef.current)
-      isTransmittingRef.current = false
     }
-  }, [isStreaming, facingMode, resolution])
+  }, [isStreaming, facingMode, resolution, targetFps])
 
   // Fullscreen toggle
   const toggleFullscreen = async () => {
@@ -407,43 +400,79 @@ export default function CameraPage() {
 
       {/* Settings drawer overlay */}
       {showSettings && (
-        <div className="absolute top-14 left-0 right-0 z-30 bg-[#12151E] border-b border-[#232838] p-4 flex items-center justify-between font-mono text-xs shadow-2xl">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-text-muted uppercase text-[10px]">Res:</span>
+        <div className="absolute top-14 left-0 right-0 z-30 bg-[#12151E] border-b border-[#232838] p-4 flex flex-col gap-3 font-mono text-xs shadow-2xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-text-muted uppercase text-[10px]">Res:</span>
+              <button
+                onClick={() => setResolution('720p')}
+                className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
+                  resolution === '720p'
+                    ? 'bg-accent-gold text-black'
+                    : 'bg-[#181B26] text-text-secondary border border-[#232838]'
+                }`}
+              >
+                720p
+              </button>
+              <button
+                onClick={() => setResolution('480p')}
+                className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
+                  resolution === '480p'
+                    ? 'bg-accent-gold text-black'
+                    : 'bg-[#181B26] text-text-secondary border border-[#232838]'
+                }`}
+              >
+                480p (Standard)
+              </button>
+              <button
+                onClick={() => setResolution('360p')}
+                className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
+                  resolution === '360p'
+                    ? 'bg-accent-gold text-black'
+                    : 'bg-[#181B26] text-text-secondary border border-[#232838]'
+                }`}
+              >
+                360p (Fast)
+              </button>
+            </div>
+            <span className="text-text-muted text-[11px] shrink-0">
+              {facingMode === 'environment' ? 'Rear Cam' : 'Front Cam'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap border-t border-[#232838]/60 pt-2.5">
+            <span className="text-text-muted uppercase text-[10px]">Target FPS:</span>
             <button
-              onClick={() => setResolution('720p')}
+              onClick={() => setTargetFps(30)}
               className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
-                resolution === '720p'
+                targetFps === 30
                   ? 'bg-accent-gold text-black'
                   : 'bg-[#181B26] text-text-secondary border border-[#232838]'
               }`}
             >
-              720p
+              30 FPS (Max Smooth)
             </button>
             <button
-              onClick={() => setResolution('480p')}
+              onClick={() => setTargetFps(24)}
               className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
-                resolution === '480p'
+                targetFps === 24
                   ? 'bg-accent-gold text-black'
                   : 'bg-[#181B26] text-text-secondary border border-[#232838]'
               }`}
             >
-              480p (Default)
+              24 FPS (Default)
             </button>
             <button
-              onClick={() => setResolution('360p')}
+              onClick={() => setTargetFps(15)}
               className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
-                resolution === '360p'
+                targetFps === 15
                   ? 'bg-accent-gold text-black'
                   : 'bg-[#181B26] text-text-secondary border border-[#232838]'
               }`}
             >
-              360p (Light)
+              15 FPS (Economy)
             </button>
           </div>
-          <span className="text-text-muted text-[11px] shrink-0">
-            {facingMode === 'environment' ? 'Rear Cam' : 'Front Cam'}
-          </span>
         </div>
       )}
 

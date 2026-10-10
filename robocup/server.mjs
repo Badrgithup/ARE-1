@@ -76,10 +76,13 @@ io.on('connection', (socket) => {
       io.emit('camera-status', { online: true, count: activeStreamerIds.size })
     }
 
-    // Broadcast frame to all connected projector displays
-    socket.broadcast.emit('camera-frame', frameData)
+    // Broadcast frame to all connected projector displays using volatile (low-latency real-time video delivery)
+    if (socket.broadcast.volatile) {
+      socket.broadcast.volatile.emit('camera-frame', frameData)
+    } else {
+      socket.broadcast.emit('camera-frame', frameData)
+    }
 
-    // Flow control acknowledgment callback to unlock streamer for next frame
     if (typeof ack === 'function') {
       ack()
     }
