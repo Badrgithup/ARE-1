@@ -31,9 +31,13 @@ data/tournaments/
 data/active-tournament.json
 data/tournaments-index.json
 
-# Logs
+# Logs & Tunnel runtime
 logs/
+robocup/logs/
 *.log
+*.pid
+robocup/tunnel.pid
+tunnel.pid
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
