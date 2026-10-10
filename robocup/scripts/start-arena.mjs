@@ -278,6 +278,57 @@ function killProcess(proc) {
   }
 }
 
+// Automatically ensure target port is free by terminating orphaned listeners
+async function freePort(port) {
+  try {
+    if (process.platform === 'win32') {
+      const netstatOutput = execSync('netstat -ano', { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] })
+      const lines = netstatOutput.split(/\r?\n/)
+      const pidsToKill = new Set()
+
+      for (const line of lines) {
+        if (line.includes(`:${port}`) && line.includes('LISTENING')) {
+          const parts = line.trim().split(/\s+/)
+          const pid = parts[parts.length - 1]
+          if (pid && pid !== '0' && pid !== String(process.pid)) {
+            pidsToKill.add(pid)
+          }
+        }
+      }
+
+      for (const pid of pidsToKill) {
+        console.log(`[RoboCup Arena] Port ${port} is occupied by orphaned PID ${pid}. Clearing port...`)
+        try {
+          execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' })
+        } catch {
+          // ignore
+        }
+      }
+
+      if (pidsToKill.size > 0) {
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+    } else {
+      try {
+        const pids = execSync(`lsof -t -i :${port}`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] })
+          .trim()
+          .split(/\r?\n/)
+        for (const pid of pids) {
+          if (pid && pid !== String(process.pid)) {
+            console.log(`[RoboCup Arena] Port ${port} is occupied by PID ${pid}. Clearing port...`)
+            process.kill(Number(pid), 'SIGKILL')
+          }
+        }
+        await new Promise((r) => setTimeout(r, 800))
+      } catch {
+        // no process found
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function shutdown() {
   if (isShuttingDown) return
   isShuttingDown = true
@@ -521,7 +572,10 @@ async function main() {
     }
   }
 
-  // 2. Start Next.js
+  // 2. Ensure port 3000 is clean and not occupied by orphaned processes
+  await freePort(PORT)
+
+  // 3. Start Next.js
   const hasBuild = fs.existsSync(path.join(robocupDir, '.next'))
   let mode = isDev ? 'dev' : hasBuild ? 'start' : 'dev'
 
